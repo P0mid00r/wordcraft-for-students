@@ -189,13 +189,6 @@ fn cut(s: &mut Session, v: &Value) -> CmdResult {
 fn paste(s: &mut Session, v: &Value) -> CmdResult {
     let frag = super::paste::paste_fragment(s, v)?;
     let text = frag.plain_text();
-    if !text.trim().is_empty() && text.trim_matches(|c: char| c.is_whitespace() || c == wordcraft_doc::para::OBJ).is_empty() == false {
-        // If it contains actual text (not just objects), block
-        let has_text = text.chars().any(|c| c != wordcraft_doc::para::OBJ && !c.is_whitespace());
-        if has_text {
-            return Err(CmdError::Disabled("pasting text is disabled".into()));
-        }
-    }
     let has_text = text.chars().any(|c| c != wordcraft_doc::para::OBJ && !c.is_whitespace());
     if has_text {
         return Err(CmdError::Disabled("pasting text is disabled".into()));
@@ -351,8 +344,8 @@ fn paste_all_clips(s: &mut Session, _: &Value) -> CmdResult {
     Ok(r)
 }
 
-fn paste_text(s: &mut Session, v: &Value) -> CmdResult {
-    return Err(CmdError::Disabled("pasting text is disabled".into()));
+fn paste_text(_s: &mut Session, _v: &Value) -> CmdResult {
+    Err(CmdError::Disabled("pasting text is disabled".into()))
 }
 
 /// One match: its range and, when asked for, the Replace with text filled in for it.
