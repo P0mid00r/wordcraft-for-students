@@ -158,6 +158,10 @@ fn copy(s: &mut Session, _: &Value) -> CmdResult {
     if a == b {
         return Ok(json!({"text": ""}));
     }
+    let sel_text = s.selected_text();
+    if !sel_text.trim().is_empty() {
+        return Err(CmdError::Disabled("copying text is disabled".into()));
+    }
     let f = s.doc.copy_range(&a, &b);
     s.clipboard_text = f.clipboard_text();
     s.clip_history.push(&f, &s.clipboard_text);
@@ -166,6 +170,10 @@ fn copy(s: &mut Session, _: &Value) -> CmdResult {
 }
 
 fn cut(s: &mut Session, v: &Value) -> CmdResult {
+    let sel_text = s.selected_text();
+    if !sel_text.trim().is_empty() {
+        return Err(CmdError::Disabled("cutting text is disabled".into()));
+    }
     let r = copy(s, v)?;
     // A tracked cut of a paragraph or sentence may become a move when pasted.
     if !super::moves::cut_tracked(s)? {
@@ -177,8 +185,21 @@ fn cut(s: &mut Session, v: &Value) -> CmdResult {
 
 /// Paste keeps the source formatting: our own copy while the system clipboard still holds it,
 /// else another program's HTML or RTF (#687), else the system clipboard's text.
+/// Text paste is disabled; pictures may be inserted via paste_picture path in UI.
 fn paste(s: &mut Session, v: &Value) -> CmdResult {
     let frag = super::paste::paste_fragment(s, v)?;
+    let text = frag.plain_text();
+    if !text.trim().is_empty() && text.trim_matches(|c: char| c.is_whitespace() || c == wordcraft_doc::para::OBJ).is_empty() == false {
+        // If it contains actual text (not just objects), block
+        let has_text = text.chars().any(|c| c != wordcraft_doc::para::OBJ && !c.is_whitespace());
+        if has_text {
+            return Err(CmdError::Disabled("pasting text is disabled".into()));
+        }
+    }
+    let has_text = text.chars().any(|c| c != wordcraft_doc::para::OBJ && !c.is_whitespace());
+    if has_text {
+        return Err(CmdError::Disabled("pasting text is disabled".into()));
+    }
     super::paste::insert(s, frag)?;
     sel_result(s)
 }
@@ -186,6 +207,11 @@ fn paste(s: &mut Session, v: &Value) -> CmdResult {
 /// Merge Formatting: the pasted text takes the destination's formatting, keeping its emphasis.
 fn paste_merge(s: &mut Session, v: &Value) -> CmdResult {
     let mut frag = super::paste::paste_fragment(s, v)?;
+    let text = frag.plain_text();
+    let has_text = text.chars().any(|c| c != wordcraft_doc::para::OBJ && !c.is_whitespace());
+    if has_text {
+        return Err(CmdError::Disabled("pasting text is disabled".into()));
+    }
     super::paste::merge_formatting(s, &mut frag);
     super::paste::insert(s, frag)?;
     sel_result(s)
@@ -326,15 +352,7 @@ fn paste_all_clips(s: &mut Session, _: &Value) -> CmdResult {
 }
 
 fn paste_text(s: &mut Session, v: &Value) -> CmdResult {
-    let text = match p::str(v, "text") {
-        Some(t) => t.to_string(),
-        None => s.clipboard.as_ref().map(Fragment::plain_text).unwrap_or_default(),
-    };
-    if text.is_empty() {
-        return Err(CmdError::Failed("the clipboard is empty".into()));
-    }
-    super::paste_text(s, &text.replace("\r\n", "\r").replace('\n', "\r"))?;
-    sel_result(s)
+    return Err(CmdError::Disabled("pasting text is disabled".into()));
 }
 
 /// One match: its range and, when asked for, the Replace with text filled in for it.
