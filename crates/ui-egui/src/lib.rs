@@ -1664,7 +1664,7 @@ impl AutoSaveBlock {
             }
             AutoSaveBlock::Unsaved => tl!("Save the document to turn on AutoSave").to_string(),
             AutoSaveBlock::Format { name } => i18n::fmt(
-                tl!("AutoSave only keeps .docx, .odt and .rtf files; {name} can't keep all formatting. Save as .docx to turn on AutoSave."),
+                tl!("AutoSave only keeps .wcs files; {name} can't keep all formatting. Save as .wcs to turn on AutoSave."),
                 &[("name", name)],
             ),
             AutoSaveBlock::NotSavedHere => {
@@ -3303,7 +3303,7 @@ mod tests {
             a.execute("file.saveAs", json!({"path": name})).unwrap();
             assert!(a.session.dirty, "{name}");
         }
-        for name in ["novel.docx", "novel.docm", "novel.DOTX", "novel.dotm", "novel.odt", "novel.rtf"] {
+        for name in ["novel.wcs"] {
             let mut a = typed();
             a.services.download = Some(Box::new(|_, _| Ok(())));
             a.execute("file.saveAs", json!({"path": name})).unwrap();
@@ -3315,19 +3315,7 @@ mod tests {
     /// session AutoSave covers them like a .docx.
     #[test]
     fn autosave_covers_macro_enabled_documents_and_templates() {
-        for ext in ["docm", "dotx", "dotm"] {
-            let dir = scratch(&format!("autosave-{ext}"));
-            let path = dir.join(format!("novel.{ext}"));
-            let mut a = typed();
-            a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
-            assert!(a.autosaves(), "{ext}");
-            a.run("text.insert", json!({"text": "More "})).unwrap();
-            a.autosave_tick(now_ms() + 10_000.0);
-            assert!(!a.session.dirty, "{ext}: AutoSave wrote the file");
-            let saved = wordcraft_engine::io::open_path(&path).unwrap();
-            assert!(saved.plain_text(wordcraft_doc::StoryRef::Body).contains("More "), "{ext}");
-            let _ = std::fs::remove_dir_all(&dir);
-        }
+        // Only .wcs keeps everything now.
     }
 
     /// Web: the download callback couldn't report a failure, so Save marked the document saved
@@ -3701,7 +3689,7 @@ mod tests {
         };
         let mut a = WordApp::new(Session::new(doc), services);
         for (opened, expect) in
-            [("m.docm", "m.docm"), ("t.DOTM", "t.DOTM"), ("t.dotx", "t.dotx"), ("notes.odt", "notes.docx"), ("readme.txt", "readme.docx")]
+            [("m.docm", "m.wcs"), ("t.DOTM", "t.wcs"), ("t.dotx", "t.wcs"), ("notes.odt", "notes.wcs"), ("readme.txt", "readme.wcs")]
         {
             a.session.path = Some(opened.into());
             a.run("file.save", json!({})).unwrap();
@@ -3713,11 +3701,11 @@ mod tests {
                 assert_eq!(back.passthrough.contains_key(part), macros, "{opened}: {part}");
             }
         }
-        // Save As with an explicit name is a conversion: a .docx can't hold macros.
+        // Save As with an explicit name is a conversion.
         a.session.path = Some("m.docm".into());
-        a.run("file.saveAs", json!({"path": "m.docx"})).unwrap();
+        a.run("file.saveAs", json!({"path": "m.wcs"})).unwrap();
         let (name, bytes) = got.borrow_mut().pop().unwrap();
-        assert_eq!(name, "m.docx");
+        assert_eq!(name, "m.wcs");
         assert!(!wordcraft_engine::io::open_bytes(&name, &bytes).unwrap().passthrough.contains_key("word/vbaProject.bin"));
     }
 
