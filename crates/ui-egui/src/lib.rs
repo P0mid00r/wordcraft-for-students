@@ -3353,7 +3353,7 @@ mod tests {
     #[test]
     fn save_as_picked_saves_then_continues() {
         let dir = scratch("saveas");
-        let path = dir.join("novel.docx");
+        let path = dir.join("novel.wcs");
         let picked = path.to_string_lossy().to_string();
         let mut a = typed();
         a.services.pick_save = Some(Box::new(move |_| Some(picked.clone())));
@@ -3426,7 +3426,7 @@ mod tests {
         for id in MAILINGS {
             let mut a = app();
             a.run("mailings.recipients", json!({"csv": "Name\nAda"})).unwrap();
-            a.run("file.save", json!({"path": dir.join("saved.docx").to_string_lossy()})).unwrap();
+            a.run("file.save", json!({"path": dir.join("saved.wcs").to_string_lossy()})).unwrap();
             assert!(!a.session.dirty);
             let document = a.session.document_id();
             a.run(id, mailing(id)).unwrap();
@@ -3630,7 +3630,7 @@ mod tests {
     #[test]
     fn cancelling_open_keeps_autosave() {
         let dir = scratch("autosave-open");
-        let path = dir.join("novel.docx");
+        let path = dir.join("novel.wcs");
         let mut a = typed();
         a.services.pick_open = Some(Box::new(|_| None));
         a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
