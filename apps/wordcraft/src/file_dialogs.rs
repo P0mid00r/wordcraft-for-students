@@ -151,7 +151,7 @@ fn save_exts(name: &str) -> Vec<String> {
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
         .filter(|e| wordcraft_engine::io::SAVE_EXTS.contains(&e.as_str()))
-        .unwrap_or_else(|| "docx".to_string());
+        .unwrap_or_else(|| "wcs".to_string());
     let mut exts: Vec<String> = Vec::with_capacity(wordcraft_engine::io::SAVE_EXTS.len());
     exts.push(suggested.clone());
     exts.extend(wordcraft_engine::io::SAVE_EXTS.iter().filter(|e| **e != suggested).map(|e| (*e).to_string()));
@@ -167,12 +167,12 @@ mod tests {
     /// bare and failing.
     #[test]
     fn save_dialog_defaults_to_the_suggested_format() {
-        assert_eq!(save_exts("novel.docx")[0], "docx");
-        assert_eq!(save_exts("report.odt")[0], "odt");
+        assert_eq!(save_exts("novel.docx")[0], "wcs");
+        assert_eq!(save_exts("report.odt")[0], "wcs");
         assert_eq!(save_exts("annual report.pdf")[0], "pdf");
         // A suggested name always has an extension; anything unreadable falls back to Word's.
-        assert_eq!(save_exts("no extension")[0], "docx");
-        assert_eq!(save_exts("mystery.rtf2")[0], "docx");
+        assert_eq!(save_exts("no extension")[0], "wcs");
+        assert_eq!(save_exts("mystery.rtf2")[0], "wcs");
         // Every savable format is still offered, once.
         let exts = save_exts("novel.docx");
         assert!(wordcraft_engine::io::SAVE_EXTS.iter().all(|e| exts.iter().any(|x| x == e)));
