@@ -57,8 +57,8 @@ pub fn save(ext: &str, doc: &Document, opts: &crate::io::ExportOptions) -> Optio
     }
     match ext {
         "wcs" => {
-            let docx = wordcraft_docx::write(doc).map_err(|e| e.to_string())?;
-            Some(Ok(wcs_encrypt(&docx)))
+            let docx = wordcraft_docx::write(doc).map_err(|e| e.to_string());
+            Some(docx.map(|d| wcs_encrypt(&d)))
         }
         "xml" => Some(wordcraft_docx::write_flat(doc).map_err(|e| e.to_string())),
         "png" => Some(render_png(doc, 0, 2.0, opts)),
