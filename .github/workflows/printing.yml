@@ -71,3 +71,27 @@ jobs:
       - name: Browser compatibility
         if: runner.os == 'Linux'
         run: cargo check -p wordcraft-web --target wasm32-unknown-unknown --locked
+
+      - name: Build release binaries (portable)
+        run: cargo build --release --locked -p wordcraft -p wordcraft-cli
+
+      - name: Package artifacts (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cd target/release
+          tar czf ../../dist/wordcraft-${{ runner.os }}-${{ runner.arch }}.tar.gz wordcraft wordcraft-cli
+          cd ../..
+
+      - name: Package artifacts (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          Compress-Archive -Path target\release\wordcraft.exe,target\release\wordcraft-cli.exe -DestinationPath dist\wordcraft-Windows-${{ runner.arch }}.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcraft-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          path: dist/*
+          retention-days: 7
