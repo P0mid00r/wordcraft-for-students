@@ -204,7 +204,7 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     crate::io::save_path_with(&path, &s.doc, password, &export_options(s, v)).map_err(CmdError::Failed)?;
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if ["docx", "docm", "dotx", "dotm", "wcs", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
+    if ["wcs"].contains(&ext.as_str()) {
         s.path = Some(path.clone());
         s.dirty = false;
     }

@@ -1246,14 +1246,9 @@ impl WordApp {
         r
     }
 
-    /// The name Save suggests: the open file's own Word format (so a .docm keeps its macros),
-    /// otherwise .docx.
+    /// The name Save suggests: the protected .wcs format by default.
     fn default_save_name(&self) -> String {
-        let ext = self.session.path.as_ref().and_then(|p| p.extension()).map(|e| e.to_string_lossy().to_string());
-        match ext {
-            Some(e) if wordcraft_engine::io::is_word_package(&e) => format!("{}.{e}", self.title_stem()),
-            _ => format!("{}.docx", self.title_stem()),
-        }
+        format!("{}.wcs", self.title_stem())
     }
 
     /// The window caption is painted with the semibold interface face (Inter). A file name in a
@@ -1689,7 +1684,7 @@ impl AutoSaveBlock {
 /// copy that leaves it unsaved. AutoSave writes only these formats.
 pub fn keeps_everything(name: &str) -> bool {
     let ext = std::path::Path::new(name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm" | "odt" | "rtf" | "json" | "xml")
+    matches!(ext.as_str(), "wcs")
 }
 
 /// The dialog a user-run command opens when it lacks the input it needs (scripts and agents get
