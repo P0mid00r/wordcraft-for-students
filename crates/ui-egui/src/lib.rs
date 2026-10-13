@@ -2656,7 +2656,7 @@ mod tests {
 
     /// A .docx on disk that the app didn't write.
     fn docx_on_disk(dir: &std::path::Path, text: &str) -> std::path::PathBuf {
-        let path = dir.join("contract.docx");
+        let path = dir.join("contract.wcs");
         let mut s = Session::new(wordcraft_doc::Document::from_text(text));
         s.run("file.save", &json!({"path": path.to_string_lossy()})).unwrap();
         path
