@@ -3303,7 +3303,8 @@ mod tests {
             a.execute("file.saveAs", json!({"path": name})).unwrap();
             assert!(a.session.dirty, "{name}");
         }
-        for name in ["novel.wcs"] {
+        {
+            let name = "novel.wcs";
             let mut a = typed();
             a.services.download = Some(Box::new(|_, _| Ok(())));
             a.execute("file.saveAs", json!({"path": name})).unwrap();
