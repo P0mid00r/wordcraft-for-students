@@ -25,10 +25,11 @@ pub const OPEN_EXTS: &[&str] = &[
     "ltx",
     "xml",
     "wcraft.json",
+    "wcs",
     "json",
 ];
 /// Formats WordCraft saves (Save As).
-pub const SAVE_EXTS: &[&str] = &["docx", "docm", "dotx", "dotm", "pdf", "txt", "md", "html", "rtf", "odt", "tex", "png", "json", "xml"];
+pub const SAVE_EXTS: &[&str] = &["docx", "docm", "dotx", "dotm", "wcs", "pdf", "txt", "md", "html", "rtf", "odt", "tex", "png", "json", "xml"];
 
 /// The extension of a file name or path, lower-case; empty when the file name has none (a dot
 /// in a folder name doesn't count).
@@ -116,6 +117,10 @@ pub fn open_bytes_with(name: &str, bytes: &[u8], password: Option<&str>) -> Resu
     let mut doc = match ext.as_str() {
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
         "txt" | "text" | "" => wordcraft_formats::txt::import(bytes),
+        "wcs" => {
+            let wcs = crate::io_ext::open("wcs", bytes);
+            wcs.ok_or_else(|| "wcs not supported".to_string())??
+        }
         "json" => serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?,
         other => match crate::io_ext::open(other, bytes) {
             Some(r) => r?,
@@ -228,6 +233,7 @@ pub fn save_bytes_opts(name: &str, doc: &Document, opts: &ExportOptions) -> Resu
             let bytes = wordcraft_formats::txt::export(doc);
             Ok(if opts.markup && opts.comments { wordcraft_formats::comments::append("txt", doc, bytes) } else { bytes })
         }
+        "wcs" => crate::io_ext::save("wcs", doc, opts).ok_or_else(|| format!("{name}: can't save as `.{ext}`"))?,
         "json" => serde_json::to_vec_pretty(doc).map_err(|e| e.to_string()),
         other => match crate::io_ext::save(other, doc, opts) {
             Some(r) => r,

@@ -2,9 +2,39 @@
 
 use wordcraft_doc::Document;
 
+/// WordCraft Secure: obfuscate OOXML bytes so that Microsoft Word cannot open them directly.
+/// Uses XOR with a fixed key (simple, reversible, sufficient to corrupt ZIP structure).
+const WCS_KEY: &[u8] = b"WORDCRAFT_WCS_V1\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+
+fn wcs_xor(buf: &mut [u8]) {
+    let mut i = 0;
+    let len = buf.len();
+    let key = WCS_KEY;
+    while i < len {
+        buf[i] ^= key[i % key.len()];
+        i += 1;
+    }
+}
+
+fn wcs_decrypt(bytes: &[u8]) -> Vec<u8> {
+    let mut b = bytes.to_vec();
+    wcs_xor(&mut b);
+    b
+}
+
+fn wcs_encrypt(bytes: &[u8]) -> Vec<u8> {
+    let mut b = bytes.to_vec();
+    wcs_xor(&mut b);
+    b
+}
+
 /// Open a format other than plain text / JSON.
 pub fn open(ext: &str, bytes: &[u8]) -> Option<Result<Document, String>> {
     match ext {
+        "wcs" => {
+            let docx_bytes = wcs_decrypt(bytes);
+            Some(wordcraft_docx::read(&docx_bytes).map_err(|e| e.to_string()))
+        }
         "docx" | "docm" | "dotx" | "dotm" => Some(wordcraft_docx::read(bytes).map_err(|e| e.to_string())),
         "doc" | "dot" => Some(wordcraft_docbin::read(bytes).map_err(|e| e.to_string())),
         // Word XML Document (Flat OPC) or Word 2003 XML, told apart by the root element.
@@ -26,6 +56,10 @@ pub fn save(ext: &str, doc: &Document, opts: &crate::io::ExportOptions) -> Optio
         return Some(wordcraft_docx::write_as(doc, flavor).map_err(|e| e.to_string()));
     }
     match ext {
+        "wcs" => {
+            let docx = wordcraft_docx::write(doc).map_err(|e| e.to_string())?;
+            Some(Ok(wcs_encrypt(&docx)))
+        }
         "xml" => Some(wordcraft_docx::write_flat(doc).map_err(|e| e.to_string())),
         "png" => Some(render_png(doc, 0, 2.0, opts)),
         "pdf" => {
