@@ -3593,7 +3593,7 @@ mod tests {
         assert_eq!(a.autosave_block(), Some(AutoSaveBlock::Format { name: "notes.md".into() }));
         assert!(!a.autosaves(), "the switch shows off");
         let why = a.autosave_block().map(|b| b.reason()).unwrap_or_default();
-        assert!(why.contains("notes.md") && why.contains(".docx"), "{why}");
+        assert!(why.contains("notes.md") && why.contains(".wcs"), "{why}");
         let err = a.run("file.autosave", json!({"value": true})).unwrap_err();
         assert_eq!(err, why, "scripts are told why");
         assert!(a.run("file.autosave", json!({"value": false})).is_ok(), "turning it off always works");
