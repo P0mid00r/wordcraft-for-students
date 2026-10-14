@@ -123,15 +123,7 @@ mod tests {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), services)
     }
 
-    fn first_para(a: &WordApp) -> String {
-        let focus = a.session.sel.focus.clone();
-        a.session.doc.para_at(&focus).map(|p| p.text.clone()).unwrap_or_default()
-    }
 
-    fn bold_at(a: &WordApp, off: usize) -> bool {
-        let focus = a.session.sel.focus.clone();
-        a.session.doc.para_at(&focus).and_then(|p| p.props_of_char(off).bold).unwrap_or(false)
-    }
 
     #[test]
     fn paste_keeps_formatting_from_the_system_clipboard_html() {
