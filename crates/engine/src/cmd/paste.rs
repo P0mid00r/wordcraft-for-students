@@ -78,9 +78,13 @@ fn source(s: &Session, v: &Value, fmt: &str) -> Option<String> {
     }
 }
 
+/// The formats this build pastes: only pictures. Copying and pasting text is disabled, so Paste
+/// Special doesn't offer the text formats (choosing one directly is refused too).
+const PASTABLE: [&str; 1] = ["picture"];
+
 /// Formats the clipboard can be pasted as, best first.
 pub fn available(s: &Session, v: &Value) -> Vec<&'static str> {
-    FORMATS.iter().map(|(id, _)| *id).filter(|id| source(s, v, id).is_some()).collect()
+    FORMATS.iter().map(|(id, _)| *id).filter(|id| PASTABLE.contains(id) && source(s, v, id).is_some()).collect()
 }
 
 fn formats_json(ids: &[&str]) -> Value {
@@ -116,6 +120,10 @@ fn paste_special(s: &mut Session, v: &Value) -> CmdResult {
         "text" | "unformatted" | "plain" => "text",
         other => return Err(CmdError::Params(format!("unknown format `{other}` (formatted, rtf, html, picture or text)"))),
     };
+    // Copying and pasting text is disabled in this build: Paste Special pastes only pictures.
+    if fmt != "picture" {
+        return Err(CmdError::Disabled("pasting text is disabled".into()));
+    }
     let Some(src) = source(s, v, fmt) else {
         return Err(CmdError::Failed(if ids.is_empty() {
             "the clipboard is empty".into()

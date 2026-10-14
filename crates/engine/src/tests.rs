@@ -829,55 +829,49 @@ fn bold_at(s: &Session, block: usize, off: usize) -> bool {
 }
 
 #[test]
-fn paste_special_lists_formats_and_pastes_text_without_formatting() {
-    // The everyday Copy command is disabled, but Paste Special still pastes text without its
-    // formatting (Keep Text Only) and lists what the clipboard offers.
+fn paste_special_does_not_offer_or_paste_text() {
+    // The student build blocks pasting text: Paste Special offers only pictures and refuses the
+    // text formats, even when the clipboard holds them.
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "Bold words"}));
     run(&mut s, "select.text", json!({"text": "Bold"}));
     run(&mut s, "format.bold", json!({}));
     assert!(s.run("edit.copy", &json!({})).is_err(), "copying text is disabled");
     run(&mut s, "caret.docEnd", json!({}));
-    // No format: the formats are listed (and a front end is asked to show the dialog).
+    // No format: the dialog is opened, but no text format is offered.
     let r = run(&mut s, "edit.pasteSpecial", json!({"text": "Bold"}));
-    let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["text"]);
+    assert_eq!(r["formats"].as_array().unwrap().len(), 0, "no text format is offered");
     assert_eq!(s.ui_requests.last().unwrap()["open"], "pasteSpecial");
-    let r = run(&mut s, "edit.pasteSpecial", json!({"as": "text", "text": "Bold"}));
-    assert_eq!(r["pastedAs"], "text");
-    assert_eq!(text(&s), "Bold wordsBold");
-    assert!(bold_at(&s, 0, 0));
-    assert!(!bold_at(&s, 0, 11), "unformatted text drops the bold");
-    // Text that someone else copied since: our rich copy is no longer offered.
-    let r = run(&mut s, "edit.pasteSpecial", json!({"text": "elsewhere"}));
-    assert_eq!(r["formats"].as_array().unwrap().len(), 1);
+    for as_ in ["text", "html", "rtf", "formatted"] {
+        let clip = json!({"as": as_, "text": "Bold", "html": "<b>Bold</b>", "rtf": r"{\rtf1\ansi Bold}"});
+        let e = s.run("edit.pasteSpecial", &clip).unwrap_err().to_string();
+        assert!(e.contains("pasting text is disabled"), "{as_}: {e}");
+    }
+    assert_eq!(text(&s), "Bold words", "the document is untouched");
 }
 
 #[test]
 fn paste_special_html_and_rtf_keep_bold() {
+    // Pasting text through Paste Special is blocked; the HTML/RTF import it used still works when
+    // the fragment is driven directly (what Paste did before).
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "x"}));
     run(&mut s, "caret.docEnd", json!({}));
     let html = "<p>plain <b>strong</b></p>";
-    let r = run(&mut s, "edit.pasteSpecial", json!({"html": html, "text": "plain strong"}));
-    let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["html", "text"]);
-    run(&mut s, "edit.pasteSpecial", json!({"as": "html", "html": html}));
+    let frag = crate::cmd::paste::rich_fragment(&mut s, &json!({"html": html})).unwrap();
+    crate::cmd::paste::insert(&mut s, frag).unwrap();
     assert_eq!(text(&s), "xplain strong");
     assert!(!bold_at(&s, 0, 2));
     assert!(bold_at(&s, 0, 8), "the <b> run stays bold");
-    // HTML source copied as text can be pasted as HTML too.
-    run(&mut s, "document.setText", json!({"text": ""}));
-    run(&mut s, "edit.pasteSpecial", json!({"as": "html", "text": "<b>hi</b> there</p>"}));
-    assert_eq!(text(&s), "hi there");
-    assert!(bold_at(&s, 0, 0) && !bold_at(&s, 0, 4));
     // RTF.
     run(&mut s, "document.setText", json!({"text": ""}));
-    run(&mut s, "edit.pasteSpecial", json!({"as": "rtf", "rtf": r"{\rtf1\ansi {\b bold}\b0  then}"}));
+    let frag = crate::cmd::paste::rich_fragment(&mut s, &json!({"rtf": r"{\rtf1\ansi {\b bold}\b0  then}"})).unwrap();
+    crate::cmd::paste::insert(&mut s, frag).unwrap();
     assert!(text(&s).starts_with("bold"), "{}", text(&s));
     assert!(bold_at(&s, 0, 0));
-    // Asking for a format the clipboard lacks is an error, not a panic.
-    assert!(s.run("edit.pasteSpecial", &json!({"as": "rtf", "text": "plain"})).is_err());
+    // Through the command, the text formats are refused, not a panic.
+    assert!(s.run("edit.pasteSpecial", &json!({"as": "html", "html": html})).is_err());
+    assert!(s.run("edit.pasteSpecial", &json!({"as": "rtf", "rtf": r"{\rtf1\ansi {\b bold}}"})).is_err());
     assert!(s.run("edit.pasteSpecial", &json!({"as": "bogus", "text": "plain"})).is_err());
     let huge = "a".repeat(crate::cmd::paste::MAX_PASTE_BYTES + 1);
     assert!(s.run("edit.pasteSpecial", &json!({"as": "text", "text": huge})).is_err());
@@ -885,9 +879,11 @@ fn paste_special_html_and_rtf_keep_bold() {
 
 #[test]
 fn paste_special_respects_track_changes_and_brings_lists() {
+    // Pasting text is blocked, but the list/HTML import it used still tracks when driven directly.
     let mut s = s();
     run(&mut s, "review.trackChanges", json!({"value": true}));
-    run(&mut s, "edit.pasteSpecial", json!({"as": "html", "html": "<ul><li>one</li><li>two</li></ul>"}));
+    let frag = crate::cmd::paste::rich_fragment(&mut s, &json!({"html": "<ul><li>one</li><li>two</li></ul>"})).unwrap();
+    crate::cmd::paste::insert(&mut s, frag).unwrap();
     assert!(text(&s).starts_with("one\ntwo"), "{}", text(&s));
     let ch = run(&mut s, "review.changes", json!({}));
     assert!(!ch.as_array().unwrap().is_empty(), "the paste is a tracked insertion");
@@ -896,6 +892,8 @@ fn paste_special_respects_track_changes_and_brings_lists() {
     assert!(s.doc.numbering.nums.iter().any(|x| x.id == n.num), "the list definition came along");
     run(&mut s, "review.acceptAll", json!({}));
     assert!(text(&s).starts_with("one\ntwo"));
+    // Through the command it is refused.
+    assert!(s.run("edit.pasteSpecial", &json!({"as": "html", "html": "<ul><li>x</li></ul>"})).is_err());
 }
 
 /// Paste of another program's formatted copy keeps its formatting (#687); Merge Formatting keeps
@@ -929,7 +927,7 @@ fn paste_special_lists_and_pastes_a_picture() {
     let png = crate::cmd::insert::base64_encode(&tiny_png());
     let r = run(&mut s, "edit.pasteSpecial", json!({"picture": png, "html": "<img src='x.png'>"}));
     let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["html", "picture"]);
+    assert_eq!(ids, ["picture"], "only the picture is offered; the HTML is text");
     run(&mut s, "edit.pasteSpecial", json!({"as": "picture", "picture": png}));
     assert_eq!(s.doc.media.len(), 1);
     assert!(s.run("edit.pasteSpecial", &json!({"as": "picture", "picture": "%%%"})).is_err());
@@ -4568,10 +4566,12 @@ fn imported_pictures_fit_the_text_width() {
     assert!((got[0].1 - max_w / 4.0).abs() < 0.01, "and keeps its proportions: {got:?}");
     assert!((got[1].0 - 30.0).abs() < 0.01 && (got[1].1 - 15.0).abs() < 0.01, "small picture keeps its size: {got:?}");
 
-    // Pasting HTML fits our text width too.
+    // Pasting HTML fits our text width too (driven directly: the Paste Special command pastes
+    // only pictures in this build).
     let mut s = Session::new(wordcraft_doc::Document::new());
     let html = format!("<p><img src=\"data:image/png;base64,{}\"></p>", png(1200, 300));
-    s.run("edit.pasteSpecial", &json!({"as": "html", "html": html})).unwrap();
+    let frag = crate::cmd::paste::rich_fragment(&mut s, &json!({"html": html})).unwrap();
+    crate::cmd::paste::insert(&mut s, frag).unwrap();
     let max_w = crate::io::text_width(&s.doc);
     let got = sizes(&s.doc);
     assert!(got.iter().any(|(w, _)| (w - max_w).abs() < 0.01), "pasted picture fits: {got:?}");

@@ -793,13 +793,13 @@ fn reject_all_takes_out_the_paragraph_breaks_a_tracked_paste_inserted() {
 #[test]
 fn plain_text_paste_keeps_an_empty_paragraph_in_a_list() {
     // Issue #422: the pasted paragraph separators went through Enter, which ends the list on an
-    // empty item, so `A\n\nB` lost its empty paragraph. The everyday Paste commands are blocked in
-    // this fork, so the check goes through Paste Special's text format.
+    // empty item, so `A\n\nB` lost its empty paragraph. Pasting text is blocked in this fork (the
+    // everyday commands and Paste Special alike), so only Enter twice is checked here.
     let mut a = s();
     run(&mut a, "para.bullets", json!({}));
     assert!(a.run("edit.pasteText", &json!({"text": "A\n\nB"})).is_err(), "pasting text is disabled");
-    run(&mut a, "edit.pasteSpecial", json!({"as": "text", "text": "A\n\nB"}));
-    assert_eq!(texts(&a), ["a", "", "b"]);
+    assert!(a.run("edit.pasteSpecial", &json!({"as": "text", "text": "A\n\nB"})).is_err(), "pasting text is disabled");
+    assert_eq!(texts(&a), [""], "nothing was pasted");
     // Enter twice still ends the list.
     let mut s = s();
     run(&mut s, "para.bullets", json!({}));

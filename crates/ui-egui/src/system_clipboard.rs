@@ -135,9 +135,9 @@ mod tests {
         assert!(a.run("edit.paste", json!({})).is_err());
         assert!(a.run("edit.pasteMerge", json!({})).is_err());
         assert!(a.run("edit.pasteText", json!({})).is_err());
+        // Pasting text is disabled, so Paste Special offers nothing from a text clipboard.
         let r = a.run("edit.pasteSpecial", json!({})).unwrap();
-        let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().filter_map(|f| f["id"].as_str()).collect();
-        assert_eq!(ids, ["html", "text"]);
+        assert!(r["formats"].as_array().unwrap().is_empty());
     }
 
     /// Text pasting is disabled in this fork.
