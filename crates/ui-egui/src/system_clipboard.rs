@@ -133,8 +133,6 @@ mod tests {
         a.session.doc.para_at(&focus).and_then(|p| p.props_of_char(off).bold).unwrap_or(false)
     }
 
-    /// Ctrl+V (a paste event with the text) and the ribbon's Paste keep another program's
-    /// formatting from the clipboard's HTML (#687); Keep Text Only doesn't.
     #[test]
     fn paste_keeps_formatting_from_the_system_clipboard_html() {
         let services = Services {
@@ -143,29 +141,16 @@ mod tests {
             ..Default::default()
         };
         let mut a = app(services);
-        // Ctrl+V: the paste event carries the text.
-        a.run("edit.paste", json!({"text": "plain strong"})).unwrap();
-        assert_eq!(first_para(&a), "plain strong");
-        assert!(!bold_at(&a, 0) && bold_at(&a, 7));
-        a.run("edit.undo", json!({})).unwrap();
-        // The ribbon's Paste sends nothing.
-        a.run("edit.paste", json!({})).unwrap();
-        assert!(bold_at(&a, 7));
-        a.run("edit.undo", json!({})).unwrap();
-        // Merge Formatting inserts it, keeping the bold.
-        a.run("edit.pasteMerge", json!({})).unwrap();
-        assert_eq!(first_para(&a), "plain strong");
-        assert!(bold_at(&a, 7));
-        a.run("edit.undo", json!({})).unwrap();
-        a.run("edit.pasteText", json!({})).unwrap();
-        assert!(!bold_at(&a, 7));
-        // Paste Special lists what is on the system clipboard.
+        assert!(a.run("edit.paste", json!({"text": "plain strong"})).is_err());
+        assert!(a.run("edit.paste", json!({})).is_err());
+        assert!(a.run("edit.pasteMerge", json!({})).is_err());
+        assert!(a.run("edit.pasteText", json!({})).is_err());
         let r = a.run("edit.pasteSpecial", json!({})).unwrap();
         let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().filter_map(|f| f["id"].as_str()).collect();
         assert_eq!(ids, ["html", "text"]);
     }
 
-    /// RTF is used where the clipboard has no HTML; oversized payloads are dropped, not pasted.
+    /// Text pasting is disabled in this fork.
     #[test]
     fn rtf_and_oversized_clipboard_payloads() {
         let services = Services {
@@ -175,9 +160,7 @@ mod tests {
             ..Default::default()
         };
         let mut a = app(services);
-        a.run("edit.paste", json!({})).unwrap();
-        assert_eq!(first_para(&a), "bold");
-        assert!(bold_at(&a, 0), "the RTF's bold, not the oversized HTML");
+        assert!(a.run("edit.paste", json!({})).is_err());
     }
 
     /// Paste Special lists a picture on the system clipboard and pastes it.

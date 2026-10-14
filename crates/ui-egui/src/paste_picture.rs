@@ -198,8 +198,7 @@ mod tests {
         assert_eq!(a.run("edit.paste", json!({})).unwrap_err(), "the clipboard is empty");
     }
 
-    /// The ribbon and context-menu Paste commands send no text; the system clipboard's text is
-    /// pasted, as Ctrl+V pastes it, even with a picture copied alongside (#584).
+    /// Text pasting is disabled; picture paste remains available when appropriate.
     #[test]
     fn paste_without_text_reads_the_system_clipboard() {
         let services = Services {
@@ -208,15 +207,10 @@ mod tests {
             ..Default::default()
         };
         let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
-        a.run("edit.paste", json!({})).unwrap();
-        a.run("edit.pasteText", json!({})).unwrap();
-        a.run("edit.pasteMerge", json!({})).unwrap();
+        assert!(a.run("edit.paste", json!({})).is_err());
+        assert!(a.run("edit.pasteText", json!({})).is_err());
+        assert!(a.run("edit.pasteMerge", json!({})).is_err());
         assert_eq!(pictures(&mut a), 0);
-        let focus = a.session.sel.focus.clone();
-        assert_eq!(a.session.doc.para_at(&focus).map(|p| p.text.clone()), Some("outside".repeat(3)));
-        // Paste Special offers the clipboard's text too.
-        let r = a.run("edit.pasteSpecial", json!({})).unwrap();
-        assert!(r["formats"].as_array().is_some_and(|f| f.iter().any(|x| x["id"] == "text")), "{r}");
     }
 
     /// Ribbon Paste after copying a picture file in a file manager inserts the picture, not its
