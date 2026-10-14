@@ -552,7 +552,7 @@ mod tests {
         a.close_file_browser(Some(path));
         assert!(!a.file_dialog_open());
         assert!(!a.session.dirty);
-        let saved = wordcraft_engine::io::open_path(&dir.join("novel.docx")).unwrap();
+        let saved = wordcraft_engine::io::open_path(&dir.join("novel.wcs")).unwrap();
         assert!(saved.plain_text(wordcraft_doc::StoryRef::Body).contains("Saved without a portal"));
         let _ = std::fs::remove_dir_all(&dir);
     }
