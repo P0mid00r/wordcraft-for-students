@@ -31,7 +31,8 @@ impl Drop for Scratch {
     }
 }
 fn original(path: &Path) -> Vec<u8> {
-    let bytes = io::save_bytes("original.docx", &Document::from_text("Original synthetic contract.")).unwrap();
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "original.docx".into());
+    let bytes = io::save_bytes(&name, &Document::from_text("Original synthetic contract.")).unwrap();
     std::fs::write(path, &bytes).unwrap();
     bytes
 }
@@ -114,7 +115,7 @@ fn successful_save_as_keeps_original_and_updates_session_only_after_saving() {
     let d = Scratch::new();
     let path = d.path("original.docx");
     let bytes = original(&path);
-    let copy = d.path("copy.docx");
+    let copy = d.path("copy.wcs");
     let mut s = Session::new(edited());
     s.path = Some(path.clone());
     s.dirty = true;
@@ -123,7 +124,25 @@ fn successful_save_as_keeps_original_and_updates_session_only_after_saving() {
     assert_eq!(s.path.as_ref(), Some(&copy));
     assert_eq!(std::fs::read(path).unwrap(), bytes);
     saved(&copy);
-    assert_eq!(d.names(), ["copy.docx", "original.docx"]);
+    assert_eq!(d.names(), ["copy.wcs", "original.docx"]);
+}
+
+#[test]
+fn export_save_as_writes_but_leaves_the_session_on_the_wordcraft_file() {
+    // Only a `.wcs` is "the document": exporting another format writes the file but the session
+    // keeps its WordCraft path and stays dirty for it.
+    let d = Scratch::new();
+    let path = d.path("original.wcs");
+    original(&path);
+    let copy = d.path("copy.docx");
+    let mut s = Session::new(edited());
+    s.path = Some(path.clone());
+    s.dirty = true;
+    s.run("file.saveAs", &json!({"path": copy})).unwrap();
+    assert!(s.dirty, "the session still points at the .wcs");
+    assert_eq!(s.path.as_ref(), Some(&path));
+    saved(&copy);
+    assert_eq!(d.names(), ["copy.docx", "original.wcs"]);
 }
 
 #[test]

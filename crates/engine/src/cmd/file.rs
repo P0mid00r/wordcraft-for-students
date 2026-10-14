@@ -139,20 +139,20 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
         s.ui_requests.push(json!({"open": "openFile"}));
         return sel_result(s);
     };
+    // The automation read roots come first: a confined agent hears about the root, not the format.
+    crate::file_access::check_read(path).map_err(CmdError::Failed)?;
+    // The student build opens only WordCraft documents (and PDF, which has no reader): a Word,
+    // text or Markdown file can't be brought in to be saved on as a `.wcs`.
+    if !crate::io::can_open(path) {
+        return Err(CmdError::Disabled("WordCraft opens only WordCraft documents (.wcs)".into()));
+    }
     let password = p::str(v, "password");
-    let (mut doc, encrypted) = if let Some(data) = p::str(v, "data") {
+    let (doc, encrypted) = if let Some(data) = p::str(v, "data") {
         let bytes = super::insert::base64_decode(data).ok_or_else(|| CmdError::Params("bad base64".into()))?;
         crate::io::open_bytes_with(path, &bytes, password).map_err(CmdError::Failed)?
     } else {
         crate::io::open_path_with(std::path::Path::new(path), password).map_err(CmdError::Failed)?
     };
-    // Plain text and Markdown carry no language: they are in the editing language.
-    let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if let Some(lang) = &s.editing_lang
-        && matches!(ext.as_str(), "txt" | "text" | "md" | "markdown")
-    {
-        doc.styles.default_chr.lang = Some(lang.clone());
-    }
     s.set_document(doc);
     s.path = Some(path.into());
     // Like Word, a document opened with a password is saved with it again.

@@ -188,6 +188,25 @@ mod tests {
         s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| p.text.clone()).collect()
     }
 
+    /// Cut the selection the way `edit.cut` does — the public command is blocked in this fork
+    /// (copying/cutting text is disabled), so the move machinery is driven directly.
+    fn cut(s: &mut Session) {
+        let (a, b) = s.sel.ordered();
+        let f = s.doc.copy_range(&a, &b);
+        s.clipboard_text = f.clipboard_text();
+        s.clipboard = Some(f);
+        if !super::cut_tracked(s).unwrap() {
+            crate::cmd::delete_selection(s).unwrap();
+        }
+        crate::cmd::controls::restore_placeholder(s).unwrap();
+    }
+
+    /// Paste what `cut` kept, the way `edit.paste`'s insert does (the command is blocked).
+    fn paste(s: &mut Session) {
+        let frag = s.clipboard.clone().expect("a copy");
+        crate::cmd::paste::insert(s, frag).unwrap();
+    }
+
     /// Three paragraphs; with Track Changes on, the second (with its mark) cut and pasted
     /// before the first.
     fn moved() -> Session {
@@ -196,9 +215,9 @@ mod tests {
         s.run("file.setAuthor", &json!({"name": "Ana"})).unwrap();
         s.run("review.trackChanges", &json!({"value": true})).unwrap();
         s.run("select.range", &json!({"anchor": {"block": 1, "off": 0}, "focus": {"block": 2, "off": 0}})).unwrap();
-        s.run("edit.cut", &json!({})).unwrap();
+        cut(&mut s);
         s.run("caret.set", &json!({"pos": {"block": 0, "off": 0}})).unwrap();
-        s.run("edit.paste", &json!({})).unwrap();
+        paste(&mut s);
         s
     }
 
@@ -233,9 +252,9 @@ mod tests {
         s.run("document.setText", &json!({"text": "one two"})).unwrap();
         s.run("review.trackChanges", &json!({"value": true})).unwrap();
         s.run("select.range", &json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 4}})).unwrap();
-        s.run("edit.cut", &json!({})).unwrap();
+        cut(&mut s);
         s.run("caret.docEnd", &json!({})).unwrap();
-        s.run("edit.paste", &json!({})).unwrap();
+        paste(&mut s);
         let k: Vec<String> = kinds(&mut s).into_iter().map(|(k, _)| k).collect();
         assert_eq!(k, ["delete", "insert"]);
     }

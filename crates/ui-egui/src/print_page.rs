@@ -234,11 +234,13 @@ fn preview(app: &mut WordApp, ui: &mut Ui, lay: &DocLayout, total: usize) {
 }
 
 /// The "save a copy" formats (File › Export, and below the settings on the Print page).
+///
+/// Only PDF: the student build never writes a WordCraft document from here, so a copy can't
+/// become a `.wcs` the way Save As would let it.
 pub fn export_formats(app: &mut WordApp, ui: &mut Ui) {
-    for (label, ext) in [("PDF document (*.pdf)", "pdf"), ("WordCraft document (*.wcs)", "wcs")] {
-        if ui.add(egui::Button::new(egui::RichText::new(tl!(label)).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked() {
-            app.export_dialog(ext);
-        }
-        ui.add_space(4.0);
+    let (label, ext) = ("PDF document (*.pdf)", "pdf");
+    if ui.add(egui::Button::new(egui::RichText::new(tl!(label)).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked() {
+        app.export_dialog(ext);
     }
+    ui.add_space(4.0);
 }

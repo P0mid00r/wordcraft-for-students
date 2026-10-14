@@ -35,14 +35,15 @@ const PICTURES: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "wmf", "
 const DOCUMENTS: &[&str] = &["wcs"];
 
 /// The file types Open offers, as (label, extensions; `*` is any file): pictures for Insert/Change
-/// Picture, recipient lists for Select Recipients › Use an Existing List…, documents otherwise.
-/// The host's system dialog and the built-in browser offer the same.
+/// Picture, recipient lists for Select Recipients › Use an Existing List…, WordCraft documents
+/// otherwise (the student build opens no other format). The host's system dialog and the built-in
+/// browser offer the same.
 pub fn open_filters(purpose: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match purpose {
         "picture" => &[("Pictures", PICTURES)],
         "font" => &[("Fonts", wordcraft_fonts::FONT_FILE_EXTS)],
         "recipients" => &[("Recipient lists", &["csv", "tsv", "txt", "xlsx", "xlsm", "ods"]), ("All files", &["*"])],
-        _ => &[("Documents", DOCUMENTS), ("Word document", &["docx"]), ("All files", &["*"])],
+        _ => &[("Documents", DOCUMENTS)],
     }
 }
 

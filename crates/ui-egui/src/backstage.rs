@@ -1,4 +1,4 @@
-//! File tab (Backstage): Home/New, Open, Info, Save As, Print, Export, Options, About.
+//! File tab (Backstage): Home/New, Open, Info, Save, Print, Export, Options, About.
 
 use egui::{Align2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
@@ -6,13 +6,12 @@ use serde_json::json;
 use crate::theme::{APP_COLOR, Tokens, medium, regular, semibold};
 use crate::{WordApp, icons};
 
-const PAGES: [(&str, &str); 9] = [
+const PAGES: [(&str, &str); 8] = [
     ("home", "Home"),
     ("new", "New"),
     ("open", "Open"),
     ("info", "Info"),
     ("save", "Save"),
-    ("saveAs", "Save As"),
     ("print", "Print"),
     ("export", "Export"),
     ("options", "Options"),
@@ -75,23 +74,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 );
                 if resp.clicked() {
                     match id {
-                        // A document without a file goes to the Save As page (as in Word) instead
-                        // of `file.save`, which would also open the native Save As dialog.
-                        // In the browser a save is a download, so it saves right away.
-                        "save" if app.session.path.is_none() && app.services.download.is_none() => {
-                            app.ui.backstage_page = "saveAs".into();
-                        }
+                        // Save always saves: a document without a file asks where through the
+                        // native Save dialog (`file.save` requests it), the browser downloads.
                         "save" => {
                             let r = app.run("file.save", json!({}));
                             if r.is_ok_and(|v| v.get("saved").and_then(serde_json::Value::as_bool) == Some(true) || v.get("downloaded").is_some()) {
                                 app.ui.backstage = false;
                                 app.canvas.want_focus = true;
-                            } else {
-                                app.ui.backstage_page = "saveAs".into();
                             }
-                        }
-                        "saveAs" => {
-                            app.ui.backstage_page = "saveAs".into();
                         }
                         _ => app.ui.backstage_page = id.into(),
                     }
@@ -120,7 +110,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             "home" => home_page(app, ui),
             "new" => new_page(app, ui),
             "open" => open_page(app, ui),
-            "saveAs" => save_as_page(app, ui),
             "info" => info_page(app, ui),
             "print" | "export" => export_page(app, ui),
             "options" => crate::options::page(app, ui),
@@ -290,15 +279,6 @@ fn open_page(app: &mut WordApp, ui: &mut Ui) {
     }
     ui.add_space(18.0);
     open_list(app, ui);
-}
-
-/// Save As: Browse… asks where to save. It has no recent-documents list: clicking one of those
-/// opens it, which is not what Save As is for.
-fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
-    heading(ui, "Save As");
-    if ui.button(egui::RichText::new(tl!("Browse…")).font(medium(14.0))).clicked() {
-        app.save_as_dialog();
-    }
 }
 
 fn info_page(app: &mut WordApp, ui: &mut Ui) {
@@ -495,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn save_as_page_shows_browse_and_no_open_list() {
+    fn backstage_has_no_save_as_page() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
         a.run("ui.backstage", json!({"value": true, "page": "saveAs"})).unwrap();
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
@@ -507,12 +487,13 @@ mod tests {
             a,
         );
         h.run_steps(4);
-        assert!(h.query_by_label("Browse…").is_some(), "Save As has Browse button");
-        assert!(h.query_by_label("Recent").is_none(), "Save As has no list that opens documents");
+        assert!(h.query_by_label("Save As").is_none(), "there is no Save As sidebar entry");
     }
 
+    /// Save on a document without a file runs `file.save`, which requests the Save dialog; the
+    /// removed Save As page is never shown.
     #[test]
-    fn backstage_save_navigates_to_save_as_when_unnamed() {
+    fn backstage_save_when_unnamed_does_not_navigate() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
         a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
@@ -526,19 +507,22 @@ mod tests {
         h.run_steps(4);
         h.get_by_label("Save").click();
         h.run_steps(4);
-        assert_eq!(h.state().ui.backstage_page, "saveAs", "unnamed Save opens Save As page");
+        assert_eq!(h.state().ui.backstage_page, "home", "Save does not navigate anywhere");
         assert!(h.state().ui.backstage, "backstage remains open");
     }
 
-    /// Save on a document without a file shows the Save As page only: no native dialog as well.
+    /// With a host file dialog, Save on an unnamed document asks where to save.
     #[test]
-    fn backstage_save_when_unnamed_opens_no_file_dialog() {
-        let shown = std::rc::Rc::new(std::cell::Cell::new(0));
-        let count = shown.clone();
+    fn backstage_save_when_unnamed_asks_where_to_save() {
+        let shown: std::rc::Rc<std::cell::RefCell<Vec<()>>> = Default::default();
+        let log = shown.clone();
         let services = Services {
             file_dialog: Some(Box::new(move |_| {
-                count.set(count.get() + 1);
-                std::sync::mpsc::channel::<crate::FileDialogAnswer>().1
+                let (tx, rx) = std::sync::mpsc::channel::<crate::FileDialogAnswer>();
+                log.borrow_mut().push(());
+                // Keep the sender alive so the dialog stays open until the test answers.
+                std::mem::forget(tx);
+                rx
             })),
             ..Default::default()
         };
@@ -555,9 +539,9 @@ mod tests {
         h.run_steps(4);
         h.get_by_label("Save").click();
         h.run_steps(4);
-        assert_eq!(h.state().ui.backstage_page, "saveAs");
-        assert_eq!(shown.get(), 0, "no native Save As dialog");
-        assert!(!h.state().file_dialog_open());
+        assert_eq!(h.state().ui.backstage_page, "home", "Save does not navigate");
+        assert_eq!(shown.borrow().len(), 1, "the host Save dialog was shown");
+        assert!(h.state().file_dialog_open());
     }
 
     #[test]
@@ -585,23 +569,5 @@ mod tests {
         h.get_by_label("Save").click();
         h.run_steps(4);
         assert!(!h.state().ui.backstage, "successful save closes backstage");
-    }
-
-    #[test]
-    fn backstage_save_as_sidebar_opens_save_as_page() {
-        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
-        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
-            |ui, app: &mut WordApp| {
-                let ctx = ui.ctx().clone();
-                app.logic(&ctx);
-                app.ui(ui);
-            },
-            a,
-        );
-        h.run_steps(4);
-        h.get_by_label("Save As").click();
-        h.run_steps(4);
-        assert_eq!(h.state().ui.backstage_page, "saveAs");
     }
 }

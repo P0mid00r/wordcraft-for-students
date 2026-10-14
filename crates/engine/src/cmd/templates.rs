@@ -474,7 +474,7 @@ mod tests {
         let mut d = Document::new();
         d.settings.attached_template = Some("Report.dotx".into());
         d.settings.link_styles = true;
-        let doc_path = path.with_file_name("Letter.docx");
+        let doc_path = path.with_file_name("Letter.wcs");
         crate::io::save_path(&doc_path, &d).unwrap();
         let mut s = Session::new(Document::new());
         s.run("file.open", &json!({"path": doc_path.to_string_lossy()})).unwrap();

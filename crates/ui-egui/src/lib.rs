@@ -602,6 +602,14 @@ impl WordApp {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
         }
+        // The student build opens only WordCraft documents (and PDF): refuse a dropped or picked
+        // file here so a document we can't open never prompts to save changes first.
+        if id == "file.open"
+            && let Some(path) = params.get("path").and_then(Value::as_str)
+            && !wordcraft_engine::io::can_open(path)
+        {
+            return Err("not available: WordCraft opens only WordCraft documents (.wcs)".into());
+        }
         if self.session.dirty && discards_document(id, &params) {
             let name =
                 self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.title_stem());
@@ -2654,7 +2662,7 @@ mod tests {
         dir
     }
 
-    /// A .docx on disk that the app didn't write.
+    /// A .wcs on disk that the app didn't write.
     fn docx_on_disk(dir: &std::path::Path, text: &str) -> std::path::PathBuf {
         let path = dir.join("contract.wcs");
         let mut s = Session::new(wordcraft_doc::Document::from_text(text));
@@ -2693,8 +2701,9 @@ mod tests {
         assert!(!body_text(&a).trim().is_empty());
     }
 
-    /// #55: a password-protected document asks for its password (after Save Changes) instead of
-    /// opening blank; scripts get the error instead of a dialog; Encrypt with Password asks for one.
+    /// #55: Encrypt with Password asks for one; null removes it without asking. The student build
+    /// opens only WordCraft documents, so a password-protected Word file can't be opened at all,
+    /// and the open command refuses it with the reason.
     #[test]
     fn password_protected_documents_ask_for_the_password() {
         let dir = scratch("password");
@@ -2703,14 +2712,10 @@ mod tests {
         s.run("file.save", &json!({"path": path.to_string_lossy(), "password": "sesame"})).unwrap();
 
         let mut a = typed();
-        assert!(a.execute("file.open", json!({"path": path.to_string_lossy()})).is_err(), "a script gets the error");
+        let err = a.execute("file.open", json!({"path": path.to_string_lossy()})).unwrap_err();
+        assert!(err.contains(".wcs"), "a Word file is refused: {err}");
         assert_eq!(prompt(&a), None);
-        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
-        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
-        assert_eq!(prompt(&a), Some("password"));
-        assert!(body_text(&a).contains(UNSAVED), "nothing is replaced until the password fits");
-        let state = serde_json::to_string(&a.dialog).unwrap();
-        assert!(state.contains("locked.docx") && !state.contains("sesame"));
+        assert!(body_text(&a).contains(UNSAVED), "nothing was replaced");
 
         let mut b = app();
         b.run("file.encrypt", json!({})).unwrap();
@@ -3578,7 +3583,7 @@ mod tests {
 
     /// #196: a saved .md file showed AutoSave on, but AutoSave writes only formats that keep
     /// everything, so edits stayed unsaved. The switch is now off and blocked with a reason, and
-    /// scripts turning it on get that reason as an error; a .docx saved here is covered.
+    /// scripts turning it on get that reason as an error.
     #[test]
     fn autosave_is_blocked_with_a_reason_for_files_it_cannot_keep() {
         let dir = scratch("autosave-md");
@@ -3586,7 +3591,9 @@ mod tests {
         std::fs::write(&md, "# Notes\n\nSome text\n").unwrap();
         let mut a = app();
         assert_eq!(a.autosave_block(), Some(AutoSaveBlock::Unsaved), "a new document has no file yet");
-        a.run("file.open", json!({"path": md.to_string_lossy()})).unwrap();
+        // The student build opens only .wcs, so a document with a .md path can only come from a
+        // save under that name; set it directly to check what AutoSave does with it.
+        a.session.path = Some(md.clone());
         a.run("text.insert", json!({"text": "Typed "})).unwrap();
         a.run("file.save", json!({})).unwrap();
         assert!(a.autosave, "the preference stays on");
@@ -4124,7 +4131,8 @@ mod tests {
     }
 
     /// Web: the picked file arrives through the inbox and loads as recipients, even as .txt; a
-    /// CSV dropped on the page does too. Anything else afterwards opens as before.
+    /// CSV dropped on the page does too. A plain-text document afterwards is refused like any
+    /// other non-.wcs file.
     #[test]
     fn an_existing_list_picked_on_the_web_loads_recipients() {
         let mut a = typed();
@@ -4150,10 +4158,9 @@ mod tests {
         assert!(!a.recipient_list_pending);
         inbox.lock().unwrap().push(("notes.txt".into(), b"A plain text document.\nAnother line.\n".to_vec()));
         a.drain_inbox();
-        assert_eq!(prompt(&a), Some("saveChanges"), "the TXT opens like any document");
-        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert_eq!(prompt(&a), None, "a non-.wcs file is refused, so no save-changes prompt");
         assert_eq!(a.session.merge.headers, vec!["Name", "City"], "the recipients stay");
-        assert!(body_text(&a).contains("A plain text document."), "the TXT opened as a document");
+        assert!(body_text(&a).contains(UNSAVED), "the document is unchanged");
         // A cancelled picker leaves nothing pending once the user does something else.
         a.run("ui.openRecipientList", json!({})).unwrap();
         a.run("format.bold", json!({})).unwrap();

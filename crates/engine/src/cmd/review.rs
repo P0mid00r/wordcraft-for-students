@@ -1126,11 +1126,18 @@ mod tests {
         s.run("document.setText", &json!({"text": "First one.\nSecond one.\nThird one."})).unwrap();
         s.run("file.setAuthor", &json!({"name": "Ana"})).unwrap();
         s.run("review.trackChanges", &json!({"value": true})).unwrap();
-        // The second paragraph, with its mark, cut and pasted before the first: a move.
+        // The second paragraph, with its mark, cut and pasted before the first: a move. The
+        // public Cut/Paste commands block copying text in this fork, so drive the move directly.
         s.run("select.range", &json!({"anchor": {"block": 1, "off": 0}, "focus": {"block": 2, "off": 0}})).unwrap();
-        s.run("edit.cut", &json!({})).unwrap();
+        let (a, b) = s.sel.ordered();
+        let f = s.doc.copy_range(&a, &b);
+        s.clipboard_text = f.clipboard_text();
+        s.clipboard = Some(f);
+        assert!(crate::cmd::moves::cut_tracked(&mut s).unwrap());
+        crate::cmd::controls::restore_placeholder(&mut s).unwrap();
         s.run("caret.set", &json!({"pos": {"block": 0, "off": 0}})).unwrap();
-        s.run("edit.paste", &json!({})).unwrap();
+        let frag = s.clipboard.clone().expect("a copy");
+        crate::cmd::paste::insert(&mut s, frag).unwrap();
         s.run("review.trackingOptions", &json!({"balloons": "revisions"})).unwrap();
         assert!(s.revisions_in_balloons());
 

@@ -31,6 +31,17 @@ pub const OPEN_EXTS: &[&str] = &[
 /// Formats WordCraft saves (Save As).
 pub const SAVE_EXTS: &[&str] = &["wcs", "pdf"];
 
+/// Extensions the document Open command accepts: the student build opens only WordCraft
+/// documents, so a Word file, a plain-text or Markdown file or any other format can't be brought
+/// in and turned into a `.wcs`. (A `.pdf` is listed but has no importer, so it fails like any
+/// other unreadable file rather than by policy.)
+pub const OPEN_ALLOWED_EXTS: &[&str] = &["wcs", "pdf"];
+
+/// Can the file `name` be opened by the document Open command (see [`OPEN_ALLOWED_EXTS`])?
+pub fn can_open(name: &str) -> bool {
+    OPEN_ALLOWED_EXTS.contains(&ext_of(name).as_str())
+}
+
 /// The extension of a file name or path, lower-case; empty when the file name has none (a dot
 /// in a folder name doesn't count).
 fn ext_of(name: &str) -> String {

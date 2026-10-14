@@ -798,35 +798,29 @@ fn find_next_with_options_visits_every_match() {
 
 #[test]
 fn clipboard_round_trip() {
+    // The student build blocks copying, cutting and pasting text, so the document is left alone.
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "alpha beta\ngamma"}));
     run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 6}, "focus": {"block": 1, "off": 2}}));
-    run(&mut s, "edit.copy", json!({}));
-    assert_eq!(s.clipboard_text, "beta\nga");
-    run(&mut s, "caret.docEnd", json!({}));
-    run(&mut s, "edit.paste", json!({}));
-    assert_eq!(text(&s), "alpha beta\ngammabeta\nga");
-    run(&mut s, "select.all", json!({}));
-    run(&mut s, "edit.cut", json!({}));
-    assert_eq!(text(&s), "");
-    run(&mut s, "edit.paste", json!({"text": "plain\ntext"}));
-    assert_eq!(text(&s), "plain\ntext");
+    assert!(s.run("edit.copy", &json!({})).is_err(), "copying text is disabled");
+    assert!(s.run("edit.cut", &json!({})).is_err(), "cutting text is disabled");
+    assert!(s.run("edit.paste", &json!({"text": "plain\ntext"})).is_err(), "pasting text is disabled");
+    assert!(s.run("edit.pasteText", &json!({"text": "plain"})).is_err());
+    assert!(s.run("edit.pasteMerge", &json!({"text": "plain"})).is_err());
+    assert_eq!(text(&s), "alpha beta\ngamma");
 }
 
 #[test]
 fn copying_symbol_font_text_puts_the_unicode_symbols_on_the_clipboard() {
+    // The copy command is blocked, but the document's own copy still maps a symbol font's
+    // private-use characters to their Unicode equivalents for the clipboard.
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "ok J\u{F0FC}"}));
     s.doc.format_range(&Pos::body(0, 3), &Pos::body(0, 7), &|c| c.font = Some("Wingdings".into())).unwrap();
     run(&mut s, "select.all", json!({}));
-    run(&mut s, "edit.copy", json!({}));
-    assert_eq!(s.clipboard_text, "ok \u{263A}\u{2713}");
-    // Pasting our own copy back (the system clipboard holds the mapped text) keeps the stored
-    // Wingdings characters, not the Unicode ones.
-    run(&mut s, "caret.docEnd", json!({}));
-    let clip = s.clipboard_text.clone();
-    run(&mut s, "edit.paste", json!({"text": clip}));
-    assert_eq!(text(&s), "ok J\u{F0FC}ok J\u{F0FC}");
+    let (a, b) = s.sel.ordered();
+    let f = s.doc.copy_range(&a, &b);
+    assert_eq!(f.clipboard_text(), "ok \u{263A}\u{2713}");
 }
 
 fn bold_at(s: &Session, block: usize, off: usize) -> bool {
@@ -836,30 +830,27 @@ fn bold_at(s: &Session, block: usize, off: usize) -> bool {
 
 #[test]
 fn paste_special_lists_formats_and_pastes_text_without_formatting() {
+    // The everyday Copy command is disabled, but Paste Special still pastes text without its
+    // formatting (Keep Text Only) and lists what the clipboard offers.
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "Bold words"}));
     run(&mut s, "select.text", json!({"text": "Bold"}));
     run(&mut s, "format.bold", json!({}));
-    run(&mut s, "edit.copy", json!({}));
-    // No format: the formats are listed (and a front end is asked to show the dialog).
-    let r = run(&mut s, "edit.pasteSpecial", json!({}));
-    let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["formatted", "text"]);
-    assert_eq!(s.ui_requests.last().unwrap()["open"], "pasteSpecial");
+    assert!(s.run("edit.copy", &json!({})).is_err(), "copying text is disabled");
     run(&mut s, "caret.docEnd", json!({}));
-    let r = run(&mut s, "edit.pasteSpecial", json!({"as": "text"}));
+    // No format: the formats are listed (and a front end is asked to show the dialog).
+    let r = run(&mut s, "edit.pasteSpecial", json!({"text": "Bold"}));
+    let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["text"]);
+    assert_eq!(s.ui_requests.last().unwrap()["open"], "pasteSpecial");
+    let r = run(&mut s, "edit.pasteSpecial", json!({"as": "text", "text": "Bold"}));
     assert_eq!(r["pastedAs"], "text");
     assert_eq!(text(&s), "Bold wordsBold");
     assert!(bold_at(&s, 0, 0));
     assert!(!bold_at(&s, 0, 11), "unformatted text drops the bold");
-    // Formatted keeps it.
-    run(&mut s, "edit.pasteSpecial", json!({"as": "formatted"}));
-    assert_eq!(text(&s), "Bold wordsBoldBold");
-    assert!(bold_at(&s, 0, 15));
     // Text that someone else copied since: our rich copy is no longer offered.
     let r = run(&mut s, "edit.pasteSpecial", json!({"text": "elsewhere"}));
     assert_eq!(r["formats"].as_array().unwrap().len(), 1);
-    assert!(s.run("edit.pasteSpecial", &json!({"as": "formatted", "text": "elsewhere"})).is_err());
 }
 
 #[test]
@@ -907,76 +898,28 @@ fn paste_special_respects_track_changes_and_brings_lists() {
     assert!(text(&s).starts_with("one\ntwo"));
 }
 
-/// Character formatting at a body offset of the first paragraph.
-fn props_at(s: &Session, off: usize) -> wordcraft_doc::CharProps {
-    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off };
-    s.doc.para_at(&pos).map(|p| p.props_of_char(off).clone()).unwrap_or_default()
-}
-
 /// Paste of another program's formatted copy keeps its formatting (#687); Merge Formatting keeps
-/// only its emphasis, in the destination's font; Keep Text Only drops it all.
+/// only its emphasis, in the destination's font; Keep Text Only drops it all. The student build
+/// blocks pasting text, so the commands refuse and leave the document alone.
 #[test]
 fn paste_keeps_source_formatting_from_other_programs() {
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "x"}));
     run(&mut s, "caret.docEnd", json!({}));
-    let html = "<p><span style=\"font-family:'Courier New';color:#ff0000\">red <b>bold</b></span></p>";
-    let clip = json!({"text": "red bold", "html": html});
-    run(&mut s, "edit.paste", clip.clone());
-    assert_eq!(text(&s), "xred bold");
-    assert_eq!(props_at(&s, 1).font.as_deref(), Some("Courier New"));
-    assert!(props_at(&s, 1).color.is_some());
-    assert!(!bold_at(&s, 0, 1) && bold_at(&s, 0, 5));
-    run(&mut s, "edit.undo", json!({}));
-    assert_eq!(text(&s), "x");
-    run(&mut s, "edit.pasteMerge", clip.clone());
-    assert_eq!(text(&s), "xred bold");
-    assert_eq!(props_at(&s, 1).font, None, "Merge Formatting takes the destination's font");
-    assert_eq!(props_at(&s, 1).color, None);
-    assert!(bold_at(&s, 0, 5), "and keeps the emphasis");
-    run(&mut s, "edit.undo", json!({}));
-    run(&mut s, "edit.pasteText", clip);
-    assert_eq!(text(&s), "xred bold");
-    assert!(!bold_at(&s, 0, 5));
+    let clip = json!({"text": "red bold", "html": "<p><b>red bold</b></p>"});
+    assert!(s.run("edit.paste", &clip).is_err(), "pasting text is disabled");
+    assert!(s.run("edit.pasteMerge", &clip).is_err(), "pasting text is disabled");
+    assert!(s.run("edit.pasteText", &clip).is_err(), "pasting text is disabled");
+    assert_eq!(text(&s), "x", "the document is untouched");
 
-    // Windows' "HTML Format" carries a header with the fragment's byte offsets.
-    run(&mut s, "document.setText", json!({"text": ""}));
-    let body = "<html><body><!--StartFragment--><b>win</b><!--EndFragment--></body></html>";
-    let head = "Version:0.9\r\nStartHTML:0000000000\r\nEndHTML:0000000000\r\nStartFragment:SSSSSSSSSS\r\nEndFragment:EEEEEEEEEE\r\n";
-    let start = head.len() + body.find("<b>").unwrap();
-    let end = head.len() + body.find("<!--EndFragment").unwrap();
-    let cf = format!("{head}{body}").replace("SSSSSSSSSS", &format!("{start:010}")).replace("EEEEEEEEEE", &format!("{end:010}"));
-    run(&mut s, "edit.paste", json!({"text": "win", "html": cf}));
-    assert_eq!(text(&s), "win");
-    assert!(bold_at(&s, 0, 0));
+    // The HTML itself from a Windows "HTML Format" (CF_HTML) clipboard payload — a `Version:`
+    // header giving byte offsets — or the text unchanged. Hostile offsets fall back to the text
+    // after the header.
     assert_eq!(crate::cmd::paste::html_fragment("Version:1\r\nStartFragment:99999\r\nEndFragment:5\r\n<i>x</i>"), "<i>x</i>");
 
-    // RTF when there is no HTML.
-    run(&mut s, "document.setText", json!({"text": ""}));
-    run(&mut s, "edit.paste", json!({"text": "bold then", "rtf": r"{\rtf1\ansi {\b bold}\b0  then}"}));
-    assert!(text(&s).starts_with("bold"), "{}", text(&s));
-    assert!(bold_at(&s, 0, 0));
-
-    // HTML with nothing to paste (a web picture by address) or too large: the text is pasted.
-    run(&mut s, "document.setText", json!({"text": ""}));
-    run(&mut s, "edit.paste", json!({"text": "alt", "html": "<img src='https://example.com/a.png'>"}));
-    assert_eq!(text(&s), "alt");
-    let huge = format!("<b>{}</b>", "a".repeat(crate::cmd::paste::MAX_PASTE_BYTES));
-    run(&mut s, "edit.paste", json!({"text": "!", "html": huge}));
-    assert_eq!(text(&s), "alt!");
     assert!(s.run("edit.paste", &json!({"html": "<p> </p>"})).is_err(), "nothing to paste is an error");
     assert!(s.run("edit.pasteMerge", &json!({"rtf": "not rtf"})).is_err());
     assert!(s.run("edit.pasteText", &json!({})).is_err());
-
-    // Our own copy still wins while the system clipboard holds its text.
-    run(&mut s, "document.setText", json!({"text": "Own"}));
-    run(&mut s, "select.all", json!({}));
-    run(&mut s, "format.italic", json!({}));
-    run(&mut s, "edit.copy", json!({}));
-    run(&mut s, "caret.docEnd", json!({}));
-    run(&mut s, "edit.paste", json!({"text": "Own"}));
-    assert_eq!(text(&s), "OwnOwn");
-    assert_eq!(props_at(&s, 4).italic, Some(true));
 }
 
 /// Paste Special lists a picture on the system clipboard and pastes it (#687).
@@ -995,69 +938,35 @@ fn paste_special_lists_and_pastes_a_picture() {
 
 #[test]
 fn clipboard_pane_collects_copies_and_pastes_one_undoably() {
+    // Copying text is disabled, so the pane never collects anything and pasting an item is refused.
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "one two three"}));
-    for (a, b) in [(0, 3), (4, 7), (8, 13)] {
-        run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": a}, "focus": {"block": 0, "off": b}}));
-        run(&mut s, "edit.copy", json!({}));
-    }
-    // Copying the same text again adds nothing.
-    run(&mut s, "edit.copy", json!({}));
-    let items = run(&mut s, "edit.clipboardItems", json!({}));
-    let previews: Vec<&str> = items.as_array().unwrap().iter().map(|i| i["preview"].as_str().unwrap()).collect();
-    assert_eq!(previews, ["three", "two", "one"], "newest first");
+    run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 3}}));
+    assert!(s.run("edit.copy", &json!({})).is_err(), "copying text is disabled");
+    assert_eq!(run(&mut s, "edit.clipboardItems", json!({})), json!([]));
     assert_eq!(run(&mut s, "edit.clipboardPane", json!({}))["value"], true);
     assert!(s.view.clipboard_pane);
-
-    run(&mut s, "caret.docEnd", json!({}));
-    run(&mut s, "edit.pasteClipboardItem", json!({"index": 1}));
-    assert_eq!(text(&s), "one two threetwo");
-    assert_eq!(s.clipboard_text, "three", "the clipboard itself is unchanged");
-    run(&mut s, "edit.undo", json!({}));
-    assert_eq!(text(&s), "one two three");
-
-    run(&mut s, "edit.pasteAllClipboard", json!({}));
-    assert_eq!(text(&s), "one two threeonetwothree", "Paste All goes in copy order");
-    run(&mut s, "edit.undo", json!({}));
-    assert_eq!(text(&s), "one two three", "Paste All is one undo step");
-
-    let left = run(&mut s, "edit.deleteClipboardItem", json!({"index": 0}));
-    assert_eq!(left[0]["preview"], "two");
+    assert!(s.run("edit.pasteClipboardItem", &json!({"index": 0})).is_err());
+    assert!(s.run("edit.pasteAllClipboard", &json!({})).is_err());
     run(&mut s, "edit.clearClipboard", json!({}));
     assert!(s.clip_history.is_empty());
-    assert!(s.run("edit.pasteClipboardItem", &json!({"index": 0})).is_err());
 }
 
 #[test]
 fn clipboard_pane_is_capped_and_rejects_bad_indexes() {
+    // Cutting text is disabled, so the pane stays empty; hostile indexes are refused, not panics.
     let mut s = s();
-    let words: Vec<String> = (0..30).map(|i| format!("w{i}")).collect();
-    run(&mut s, "document.setText", json!({"text": words.join(" ")}));
-    // Cutting each word in turn leaves the spaces: word `off` starts at `off`.
-    for (off, w) in words.iter().enumerate() {
-        run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": off}, "focus": {"block": 0, "off": off + w.len()}}));
-        run(&mut s, "edit.cut", json!({}));
-    }
-    let items = run(&mut s, "edit.clipboardItems", json!({}));
-    let items = items.as_array().unwrap();
-    assert_eq!(items.len(), crate::cmd::edit::CLIP_MAX_ITEMS);
-    assert_eq!(items[0]["preview"], "w29");
-    assert_eq!(items[23]["preview"], "w6", "the oldest drop out");
-
+    run(&mut s, "document.setText", json!({"text": "w0 w1 w2"}));
+    run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 2}}));
+    assert!(s.run("edit.cut", &json!({})).is_err(), "cutting text is disabled");
+    assert_eq!(run(&mut s, "edit.clipboardItems", json!({})), json!([]));
     let before = text(&s);
     for bad in [json!({"index": 24}), json!({"index": -1}), json!({"index": 1e300}), json!({"index": "x"}), json!({})] {
         assert!(s.run("edit.pasteClipboardItem", &bad).is_err(), "{bad}");
         assert!(s.run("edit.deleteClipboardItem", &bad).is_err(), "{bad}");
     }
     assert_eq!(text(&s), before);
-    assert_eq!(s.clip_history.len(), 24);
-
-    // A huge copy still reaches the clipboard but is not collected.
-    run(&mut s, "document.setText", json!({"text": "x".repeat(3 << 20)}));
-    run(&mut s, "select.all", json!({}));
-    run(&mut s, "edit.copy", json!({}));
-    assert_eq!(s.clipboard_text.len(), 3 << 20);
-    assert_eq!(s.clip_history.items()[0].text, "w29");
+    assert!(s.clip_history.is_empty());
 }
 
 #[test]
@@ -1954,8 +1863,8 @@ fn copy_paste_text_box_makes_an_independent_copy() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "A"}));
     let id = run(&mut s, "insert.textBox", json!({"text": "Original"}))["story"].as_u64().unwrap() as u32;
-    // Select "A" and the box in the body, copy, paste at the end.
-    run(&mut s, "select.range", json!({"anchor": Pos::body(0, 0), "focus": Pos::body(0, 1 + 3)}));
+    // Select just the text box (no text: copying text is disabled), copy and paste it at the end.
+    run(&mut s, "select.range", json!({"anchor": Pos::body(0, 1), "focus": Pos::body(0, 4)}));
     run(&mut s, "edit.copy", json!({}));
     run(&mut s, "caret.set", json!({"pos": Pos::body(0, 4)}));
     let parts = s.doc.parts.len();
@@ -2638,18 +2547,15 @@ fn block(s: &mut Session) {
 
 #[test]
 fn column_selection_copies_the_block() {
+    // The student build blocks copying text, so a block of text is refused too.
     let mut s = column_doc();
     block(&mut s);
-    let r = run(&mut s, "edit.copy", json!({}));
-    assert_eq!(r["text"], "cd\ncd\ncd");
-    assert_eq!(s.clipboard.as_ref().map(|f| f.blocks.len()), Some(3));
-    // A caret move drops the block; pasting the copy gives three paragraphs.
+    assert!(s.run("edit.copy", &json!({})).is_err(), "copying text is disabled");
+    assert!(s.clipboard.is_none());
+    // A caret move drops the block; pasting text is disabled as well.
     run(&mut s, "caret.docEnd", json!({}));
     assert!(s.column_segments().is_none());
-    s.prefs.autocorrect.enabled = false;
-    run(&mut s, "text.newParagraph", json!({}));
-    run(&mut s, "edit.paste", json!({}));
-    assert_eq!(text(&s), "abcdef\nabcdef\nabcdef\ncd\ncd\ncd");
+    assert!(s.run("edit.paste", &json!({})).is_err(), "pasting text is disabled");
 }
 
 #[test]
@@ -2661,12 +2567,10 @@ fn column_selection_deletes_only_the_block() {
     assert_eq!(s.sel, crate::Selection::caret(Pos::body(0, 2)));
     run(&mut s, "edit.undo", json!({}));
     assert_eq!(text(&s), "abcdef\nabcdef\nabcdef");
-    // Cut copies and deletes; typing replaces the block.
+    // Cut of the text is blocked and leaves the block alone; typing replaces it.
     block(&mut s);
-    let r = run(&mut s, "edit.cut", json!({}));
-    assert_eq!(r["text"], "cd\ncd\ncd");
-    assert_eq!(text(&s), "abef\nabef\nabef");
-    run(&mut s, "edit.undo", json!({}));
+    assert!(s.run("edit.cut", &json!({})).is_err(), "cutting text is disabled");
+    assert_eq!(text(&s), "abcdef\nabcdef\nabcdef");
     block(&mut s);
     run(&mut s, "text.insert", json!({"text": "X"}));
     assert_eq!(text(&s), "abXef\nabef\nabef");
@@ -3331,31 +3235,26 @@ fn password_protected_documents_round_trip() {
     assert!(wordcraft_docx::is_encrypted(&std::fs::read(&path).unwrap()));
     assert!(a.run("file.save", &json!({"path": dir.join("x.txt").to_string_lossy(), "password": "pw"})).is_err(), "only Word packages encrypt");
 
-    // No password, then a wrong one: clear errors, and the open document stays.
+    // The student build opens only .wcs: the command refuses the encrypted Word file…
     let mut t = s();
     let e = t.run("file.open", &json!({"path": path_str})).unwrap_err().to_string();
-    assert!(crate::io::needs_password(&e), "{e}");
-    let e = t.run("file.open", &json!({"path": path_str, "password": "hunter3"})).unwrap_err().to_string();
-    assert!(crate::io::wrong_password(&e), "{e}");
+    assert!(e.contains(".wcs"), "a Word file is refused: {e}");
     assert!(t.path.is_none());
-
-    let r = run(&mut t, "file.open", json!({"path": path_str, "password": "hunter2"}));
-    assert_eq!(r["encrypted"], true);
-    assert_eq!(text(&t), "Quarterly numbers");
-    assert_eq!(run(&mut t, "file.info", json!({}))["encrypted"], true);
-    // Saving again keeps the password, as Word does.
-    run(&mut t, "text.insert", json!({"text": "Q3 "}));
-    run(&mut t, "file.save", json!({}));
+    // …but the io layer still reads the encrypted package with the right password.
+    let e = crate::io::open_path_with(&path, None).unwrap_err().to_string();
+    assert!(crate::io::needs_password(&e), "{e}");
+    let e = crate::io::open_path_with(&path, Some("hunter3")).unwrap_err().to_string();
+    assert!(crate::io::wrong_password(&e), "{e}");
     let (doc, encrypted) = crate::io::open_path_with(&path, Some("hunter2")).unwrap();
-    assert!(encrypted && doc.plain_text(StoryRef::Body).contains("Q3"));
+    assert!(encrypted && doc.plain_text(StoryRef::Body).contains("Quarterly numbers"));
 
-    // Removing the password saves the document unencrypted.
-    assert!(t.run("file.encrypt", &json!({})).is_err());
-    assert!(t.run("file.encrypt", &json!({"password": "x".repeat(300)})).is_err());
-    t.dirty = false;
-    assert_eq!(run(&mut t, "file.encrypt", json!({"password": null}))["encrypted"], false);
-    assert!(t.dirty, "removing the password is a change to save");
-    run(&mut t, "file.save", json!({}));
+    // Removing the password saves the document unencrypted (`a` still carries the password).
+    assert!(a.run("file.encrypt", &json!({})).is_err());
+    assert!(a.run("file.encrypt", &json!({"password": "x".repeat(300)})).is_err());
+    a.dirty = false;
+    assert_eq!(run(&mut a, "file.encrypt", json!({"password": null}))["encrypted"], false);
+    assert!(a.dirty, "removing the password is a change to save");
+    run(&mut a, "file.save", json!({"path": path_str}));
     assert!(crate::io::open_path(&path).unwrap().plain_text(StoryRef::Body).contains("Quarterly"));
     // A password never shows in debug output.
     assert_eq!(format!("{:?}", crate::io::Password::new("hunter2")), "Password(***)");
@@ -3891,21 +3790,24 @@ fn unknown_text_extensions_open_as_text() {
     assert_eq!(lines(&crate::io::open_bytes("letter.bak", &docx).unwrap()), lines(&crate::io::open_bytes("x.docx", &docx).unwrap()));
     let rtf = crate::io::open_bytes("note.tmp", br"{\rtf1\ansi Hello {\b bold}\par}").unwrap();
     assert!(lines(&rtf).starts_with("Hello bold"), "{:?}", lines(&rtf));
-    // Through file.open, both from disk and with the bytes (the web's picker and drops).
+    // The student build's Open command accepts only .wcs (and .pdf, which has no reader): every
+    // other extension is refused before anything is read, so no text file can be brought in.
     let dir = std::env::temp_dir().join(format!("wordcraft-569-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("road trip.m3u");
     std::fs::write(&path, cp1252).unwrap();
     let mut s = s();
-    let r = run(&mut s, "file.open", json!({"path": path.to_string_lossy()}));
-    assert_eq!(r["paragraphs"], 4);
-    assert!(text(&s).contains("Café — Live"));
+    run(&mut s, "document.setText", json!({"text": "Kept"}));
     let data = crate::cmd::insert::base64_encode(m3u8.as_bytes());
-    run(&mut s, "file.open", json!({"path": "Mix.m3u8", "data": data}));
-    assert!(text(&s).contains("Радио"));
-    let bad = crate::cmd::insert::base64_encode(b"\0\x01\x02binary\0");
-    assert!(s.run("file.open", &json!({"path": "x.bin", "data": bad})).is_err());
-    assert!(text(&s).contains("Радио"), "a failed open leaves the document alone");
+    for (name, params) in [
+        ("road trip.m3u", json!({"path": path.to_string_lossy()})),
+        ("Mix.m3u8", json!({"path": "Mix.m3u8", "data": data})),
+        ("notes.txt", json!({"path": "notes.txt", "data": crate::cmd::insert::base64_encode(b"one\ntwo")})),
+    ] {
+        let err = s.run("file.open", &params).unwrap_err().to_string();
+        assert!(err.contains(".wcs"), "{name}: {err}");
+    }
+    assert_eq!(text(&s), "Kept", "a refused open leaves the document alone");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -4348,8 +4250,9 @@ fn new_documents_follow_the_editing_language() {
     run(&mut s, "file.new", json!({"template": "letter"}));
     assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("en-US"), "templates are English text");
     let data = crate::cmd::insert::base64_encode("Płynie rzeka.".as_bytes());
-    run(&mut s, "file.open", json!({"path": "notatka.txt", "data": data}));
-    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pl"));
+    let e = s.run("file.open", &json!({"path": "notatka.txt", "data": data})).unwrap_err().to_string();
+    assert!(e.contains(".wcs"), "a plain-text file is refused: {e}");
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("en-US"), "a refused open changes nothing");
     assert_eq!(run(&mut s, "review.issues", json!({})), json!([]));
     // Malformed tags fall back to US English.
     s.set_editing_language(Some("not a tag"));

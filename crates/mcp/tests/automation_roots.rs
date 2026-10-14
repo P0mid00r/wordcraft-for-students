@@ -28,6 +28,8 @@ fn confined(tag: &str, read: bool, write: bool) -> (Server, PathBuf) {
         std::fs::create_dir_all(base.join(d)).unwrap();
     }
     std::fs::write(base.join("in/a.txt"), "Inside text").unwrap();
+    let wcs = wordcraft_engine::io::save_bytes("a.wcs", &wordcraft_doc::Document::from_text("Inside text")).unwrap();
+    std::fs::write(base.join("in/a.wcs"), wcs).unwrap();
     std::fs::write(base.join("in/people.csv"), "Name\nAda\n").unwrap();
     std::fs::write(base.join("in/pic.png"), PNG).unwrap();
     std::fs::write(base.join("outside/secret.txt"), "TOP SECRET").unwrap();
@@ -71,7 +73,7 @@ fn run(server: &mut Server, command: &str, params: Value) -> (bool, String) {
 fn files_open_only_from_inside_the_read_root() {
     let (mut server, base) = confined("open", true, true);
     let sep = std::path::MAIN_SEPARATOR;
-    ok(&mut server, "open_document", json!({"path": s(&base.join("in/a.txt"))}));
+    ok(&mut server, "open_document", json!({"path": s(&base.join("in/a.wcs"))}));
     assert!(ok(&mut server, "get_text", json!({})).contains("Inside text"));
 
     refused(&mut server, "open_document", json!({"path": s(&base.join("outside/secret.txt"))}), "outside the read root");
@@ -104,7 +106,7 @@ fn commands_that_read_a_path_are_held_to_the_read_root() {
         ("file.newFromTemplate", json!({"path": outside})),
         ("review.compare", json!({"path": outside})),
         ("review.compare", json!({"text": "x", "original": outside})),
-        ("file.open", json!({"path": outside})),
+        ("file.open", json!({"path": s(&base.join("outside/secret.wcs"))})),
         ("styles.organizer", json!({"path": s(&base.join("outside/t.docx"))})),
         ("tools.updateStyles", json!({"path": s(&base.join("outside/t.docx"))})),
         ("styles.copyFrom", json!({"path": s(&base.join("outside/t.docx")), "styles": ["Heading 1"]})),
@@ -177,7 +179,7 @@ fn saves_and_exports_go_only_into_the_write_root() {
 #[test]
 fn a_root_left_out_grants_none_of_its_access() {
     let (mut server, base) = confined("read-only", true, false);
-    ok(&mut server, "open_document", json!({"path": s(&base.join("in/a.txt"))}));
+    ok(&mut server, "open_document", json!({"path": s(&base.join("in/a.wcs"))}));
     refused(&mut server, "save_document", json!({"path": s(&base.join("out/doc.docx"))}), "write authority is absent");
     refused(&mut server, "save_document", json!({"path": s(&base.join("in/doc.docx"))}), "write authority is absent");
     assert!(!base.join("out/doc.docx").exists());

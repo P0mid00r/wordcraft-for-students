@@ -44,6 +44,15 @@ fn row_text(s: &Session, a: &Pos, b: &Pos) -> String {
     s.doc.para_at(&a).and_then(|p| p.text.get(a.off.min(b.off)..b.off.max(a.off))).map(str::to_string).unwrap_or_default()
 }
 
+/// The student build blocks copying and cutting text: a block whose rows hold text is refused
+/// (the same rule the single-run Copy and Cut commands apply, which this path bypasses otherwise).
+fn ensure_no_text(s: &Session, segs: &[(Pos, Pos)], why: &str) -> Result<(), CmdError> {
+    if segs.iter().any(|(a, b)| !row_text(s, a, b).trim().is_empty()) {
+        return Err(CmdError::Disabled(why.into()));
+    }
+    Ok(())
+}
+
 /// `{"page": n, "x": pt, "y": pt}`.
 fn point(v: &Value, name: &str) -> Result<(usize, f32, f32), CmdError> {
     match (p::u64(v, "page"), p::f32(v, "x"), p::f32(v, "y")) {
@@ -160,8 +169,12 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
         // Whole cells: table commands take the rectangle between the corners, and Tab moves on
         // from it without clearing it, as in Word.
         _ if cells && (id.starts_with("table.") || matches!(id, "text.tab" | "text.backTab")) => run(s, v),
-        "edit.copy" => copy(s, &segs),
+        "edit.copy" => {
+            ensure_no_text(s, &segs, "copying text is disabled")?;
+            copy(s, &segs)
+        }
         "edit.cut" => {
+            ensure_no_text(s, &segs, "cutting text is disabled")?;
             let r = copy(s, &segs)?;
             delete(s, &segs)?;
             Ok(r)

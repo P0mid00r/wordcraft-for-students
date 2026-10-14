@@ -770,13 +770,14 @@ fn overtype_replaces_the_characters_after_the_caret() {
 
 #[test]
 fn reject_all_takes_out_the_paragraph_breaks_a_tracked_paste_inserted() {
-    // Issue #417: Paste's paragraph marks weren't tracked, so Reject All left the split.
+    // Issue #417: Paste's paragraph marks weren't tracked, so Reject All left the split. The
+    // public Paste blocks text in this fork, so the fragment is inserted directly.
     for text in ["X\nY", "\n"] {
         let mut s = s();
         run(&mut s, "text.insert", json!({"text": "AB", "raw": true}));
         run(&mut s, "caret.set", json!({"pos": {"block": 0, "off": 1}}));
         run(&mut s, "review.trackChanges", json!({"value": true}));
-        run(&mut s, "edit.paste", json!({"text": text}));
+        crate::cmd::paste::insert(&mut s, wordcraft_doc::edit::Fragment::from_text(text)).unwrap();
         let (head, tail) = text.split_once('\n').unwrap_or_default();
         assert_eq!(texts(&s), [format!("a{}", head.to_lowercase()), format!("{}b", tail.to_lowercase())], "{text:?}");
         let pasted = texts(&s);
@@ -792,13 +793,13 @@ fn reject_all_takes_out_the_paragraph_breaks_a_tracked_paste_inserted() {
 #[test]
 fn plain_text_paste_keeps_an_empty_paragraph_in_a_list() {
     // Issue #422: the pasted paragraph separators went through Enter, which ends the list on an
-    // empty item, so `A\n\nB` lost its empty paragraph.
-    for (id, v) in [("edit.pasteText", json!({"text": "A\n\nB"})), ("edit.pasteSpecial", json!({"as": "text", "text": "A\n\nB"}))] {
-        let mut s = s();
-        run(&mut s, "para.bullets", json!({}));
-        run(&mut s, id, v);
-        assert_eq!(texts(&s), ["a", "", "b"], "{id}");
-    }
+    // empty item, so `A\n\nB` lost its empty paragraph. The everyday Paste commands are blocked in
+    // this fork, so the check goes through Paste Special's text format.
+    let mut a = s();
+    run(&mut a, "para.bullets", json!({}));
+    assert!(a.run("edit.pasteText", &json!({"text": "A\n\nB"})).is_err(), "pasting text is disabled");
+    run(&mut a, "edit.pasteSpecial", json!({"as": "text", "text": "A\n\nB"}));
+    assert_eq!(texts(&a), ["a", "", "b"]);
     // Enter twice still ends the list.
     let mut s = s();
     run(&mut s, "para.bullets", json!({}));
