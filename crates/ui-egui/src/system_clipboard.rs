@@ -123,8 +123,6 @@ mod tests {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), services)
     }
 
-
-
     #[test]
     fn paste_keeps_formatting_from_the_system_clipboard_html() {
         let services = Services {

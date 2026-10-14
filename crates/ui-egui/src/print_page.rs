@@ -235,10 +235,7 @@ fn preview(app: &mut WordApp, ui: &mut Ui, lay: &DocLayout, total: usize) {
 
 /// The "save a copy" formats (File › Export, and below the settings on the Print page).
 pub fn export_formats(app: &mut WordApp, ui: &mut Ui) {
-    for (label, ext) in [
-        ("PDF document (*.pdf)", "pdf"),
-        ("WordCraft document (*.wcs)", "wcs"),
-    ] {
+    for (label, ext) in [("PDF document (*.pdf)", "pdf"), ("WordCraft document (*.wcs)", "wcs")] {
         if ui.add(egui::Button::new(egui::RichText::new(tl!(label)).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked() {
             app.export_dialog(ext);
         }
