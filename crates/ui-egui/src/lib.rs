@@ -3599,14 +3599,14 @@ mod tests {
         assert!(a.run("file.autosave", json!({"value": false})).is_ok(), "turning it off always works");
         a.autosave = true;
 
-        // Save As .docx (what the greyed switch offers) lifts the block.
-        let docx = dir.join("notes.docx");
-        a.run("file.saveAs", json!({"path": docx.to_string_lossy()})).unwrap();
+        // Save As .wcs lifts the block.
+        let wcs = dir.join("notes.wcs");
+        a.run("file.saveAs", json!({"path": wcs.to_string_lossy()})).unwrap();
         assert_eq!(a.autosave_block(), None);
         assert!(a.autosaves());
         a.run("text.insert", json!({"text": "More "})).unwrap();
         a.autosave_tick(now_ms() + 10_000.0);
-        assert!(!a.session.dirty, "AutoSave wrote the .docx");
+        assert!(!a.session.dirty, "AutoSave wrote the .wcs");
         assert_eq!(a.run("file.autosave", json!({})).unwrap(), json!({"value": false}), "toggling turns it off");
         assert!(!a.autosaves());
         let _ = std::fs::remove_dir_all(&dir);
