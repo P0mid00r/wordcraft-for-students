@@ -370,12 +370,12 @@ mod tests {
     #[test]
     fn save_as_answer_arriving_later_is_saved() {
         let dir = scratch("later");
-        let path = dir.join("novel.docx");
+        let path = dir.join("novel.wcs");
         let (mut a, shown) = async_app();
         typed(&mut a);
         a.save_as_dialog();
         assert!(a.file_dialog_open());
-        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "Document1.docx".into() });
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "Document1.wcs".into() });
         let ctx = egui::Context::default();
         let frame = |a: &mut WordApp| ctx.run_ui(egui::RawInput::default(), |ui| a.logic(ui.ctx())).drop_without_applying_deltas();
         frame(&mut a);
@@ -393,8 +393,8 @@ mod tests {
     #[test]
     fn save_as_with_a_new_filename_saves_under_it() {
         let dir = scratch("rename");
-        let opened = dir.join("one.docx");
-        let picked = dir.join("sub").join("two.docx");
+        let opened = dir.join("one.wcs");
+        let picked = dir.join("sub").join("two.wcs");
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("original"))
             .run("file.save", &json!({"path": opened.to_string_lossy()}))
@@ -413,7 +413,7 @@ mod tests {
         let r = a.run("file.saveAs", json!({})).unwrap();
         assert_eq!(r, json!({"saved": false}));
         assert!(a.file_dialog_open(), "F12's saveAs request opens the dialog");
-        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "two.docx".into() });
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "two.wcs".into() });
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn save_changes_waits_for_the_save_as_answer() {
         let dir = scratch("prompt");
-        let path = dir.join("novel.docx");
+        let path = dir.join("novel.wcs");
         let (mut a, shown) = async_app();
         typed(&mut a);
         a.run("file.new", json!({})).unwrap();

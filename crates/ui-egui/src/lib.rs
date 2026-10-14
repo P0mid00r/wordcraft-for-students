@@ -3650,7 +3650,7 @@ mod tests {
     #[test]
     fn autosave_failures_are_reported_once() {
         let dir = scratch("autosave-fail");
-        let path = dir.join("gone").join("novel.docx");
+        let path = dir.join("gone").join("novel.wcs");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut a = typed();
         a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
