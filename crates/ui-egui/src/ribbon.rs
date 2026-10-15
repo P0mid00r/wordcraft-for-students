@@ -100,9 +100,23 @@ pub fn has_chart_selected(s: &wordcraft_engine::Session) -> bool {
     wordcraft_engine::cmd::chart::selected_chart(s).is_some()
 }
 
+/// Whether the caret is in a header or footer, so the Header & Footer Tools tab is shown.
+pub fn editing_header_footer(s: &wordcraft_engine::Session) -> bool {
+    match s.sel.focus.story {
+        wordcraft_doc::StoryRef::Part(id) => {
+            s.doc.parts.get(&id).is_some_and(|p| matches!(p.kind, wordcraft_doc::PartKind::Header | wordcraft_doc::PartKind::Footer))
+        }
+        wordcraft_doc::StoryRef::Body => false,
+    }
+}
+
 /// Contextual tabs for the current selection (pure, tested).
 pub fn contextual_tabs(s: &wordcraft_engine::Session) -> Vec<&'static str> {
     let mut tabs = Vec::new();
+    // Editing a header or footer (Word's "Header & Footer Tools ▸ Design").
+    if editing_header_footer(s) {
+        tabs.push("Header & Footer");
+    }
     if s.sel.focus.path.cell().is_some() {
         tabs.push("Table Design");
         tabs.push("Table Layout");
@@ -165,6 +179,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
     } else if let Some(prev) = app.outline_prev_tab.take()
         && app.ui.tab == "Outlining"
+    {
+        app.ui.tab = prev;
+    }
+    // Entering a header or footer brings up the Header & Footer Tools tab; leaving it goes back.
+    if editing_header_footer(&app.session) {
+        if app.hf_prev_tab.is_none() {
+            app.hf_prev_tab = Some(app.ui.tab.clone());
+            app.ui.tab = "Header & Footer".into();
+        }
+    } else if let Some(prev) = app.hf_prev_tab.take()
+        && app.ui.tab == "Header & Footer"
     {
         app.ui.tab = prev;
     }
@@ -306,6 +331,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         "SmartArt Design" => smart_art_design(app, ui),
                         "Outlining" => outlining(app, ui),
                         "Chart Design" => chart_design(app, ui),
+                        "Header & Footer" => header_footer_tab(app, ui),
                         _ => home(app, ui),
                     }
                     if let Some(e) = entry {
@@ -765,6 +791,59 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// The Header, Footer and Page Number menus: Insert › Header & Footer, and the Header & Footer
+/// Tools ▸ Design tab's Header & Footer group.
+fn hf_menus(ui: &mut Ui, app: &mut WordApp) {
+    menu_button(ui, app, "header", Some("Header"), "Header", true, "insert.header", |ui, app| {
+        mi(ui, app, "Blank", "insert.header", json!({"preset": "blank"}));
+        mi(ui, app, "Blank (Three Columns)", "insert.header", json!({"preset": "blankThree"}));
+        mi(ui, app, "Document Title", "insert.header", json!({"preset": "title"}));
+        ui.separator();
+        mi(ui, app, "Edit Header", "insert.editHeader", json!({}));
+        mi(ui, app, "Remove Header", "insert.removeHeader", json!({}));
+    });
+    menu_button(ui, app, "footer", Some("Footer"), "Footer", true, "insert.footer", |ui, app| {
+        mi(ui, app, "Blank", "insert.footer", json!({"preset": "blank"}));
+        mi(ui, app, "Blank (Three Columns)", "insert.footer", json!({"preset": "blankThree"}));
+        mi(ui, app, "Page Number", "insert.footer", json!({"preset": "pageNumber"}));
+        ui.separator();
+        mi(ui, app, "Edit Footer", "insert.editFooter", json!({}));
+        mi(ui, app, "Remove Footer", "insert.removeFooter", json!({}));
+    });
+    menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", |ui, app| {
+        mi(ui, app, "Top of Page", "insert.pageNumber", json!({"position": "top", "align": "right"}));
+        mi(ui, app, "Bottom of Page", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
+        mi(ui, app, "Page X of Y", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
+        mi(ui, app, "Current Position", "insert.pageNumber", json!({"position": "current"}));
+        mi(ui, app, "Format Page Numbers…", "ui.dialog", json!({"name": "pageNumberFormat"}));
+    });
+}
+
+/// The contextual Header & Footer Tools ▸ Design tab (Word's "Header & Footer Tools"), shown while
+/// the caret is in a header or footer: the header/footer/page-number menus, the Options that turn
+/// the first-page and odd/even variants on, navigation and Close.
+fn header_footer_tab(app: &mut WordApp, ui: &mut Ui) {
+    group(ui, "Header & Footer", None, app, |ui, app| {
+        hf_menus(ui, app);
+    });
+    group(ui, "Options", None, app, |ui, app| {
+        let first = wordcraft_engine::cmd::page::sect(&app.session).title_page;
+        let even = app.session.doc.settings.even_odd_headers;
+        big_toggle(ui, app, "onePage", "Different First Page", "layout.differentFirstPage", first);
+        big_toggle(ui, app, "multiplePages", "Different Odd & Even Pages", "layout.differentOddEven", even);
+    });
+    group(ui, "Navigation", None, app, |ui, app| {
+        small(ui, app, "header", Some("Edit Header"), "Edit Header", "insert.editHeader", json!({}), false);
+        small(ui, app, "footer", Some("Edit Footer"), "Edit Footer", "insert.editFooter", json!({}), false);
+        small(ui, app, "link", None, "Link to Previous", "layout.linkToPrevious", json!({}), false);
+        small(ui, app, "previous", None, "Previous Section", "hf.previous", json!({}), false);
+        small(ui, app, "next", None, "Next Section", "hf.next", json!({}), false);
+    });
+    group(ui, "Close", None, app, |ui, app| {
+        big(ui, app, "close", "Close\nHeader and Footer", "insert.closeHeader", json!({}), false);
+    });
+}
+
 fn insert(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Pages", None, app, |ui, app| {
         stack(ui, |ui| {
@@ -837,29 +916,7 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
         big(ui, app, "newComment", "Comment", "review.newComment", json!({}), false);
     });
     group(ui, "Header & Footer", None, app, |ui, app| {
-        menu_button(ui, app, "header", Some("Header"), "Header", true, "insert.header", |ui, app| {
-            mi(ui, app, "Blank", "insert.header", json!({"preset": "blank"}));
-            mi(ui, app, "Blank (Three Columns)", "insert.header", json!({"preset": "blankThree"}));
-            mi(ui, app, "Document Title", "insert.header", json!({"preset": "title"}));
-            ui.separator();
-            mi(ui, app, "Edit Header", "insert.editHeader", json!({}));
-            mi(ui, app, "Remove Header", "insert.removeHeader", json!({}));
-        });
-        menu_button(ui, app, "footer", Some("Footer"), "Footer", true, "insert.footer", |ui, app| {
-            mi(ui, app, "Blank", "insert.footer", json!({"preset": "blank"}));
-            mi(ui, app, "Blank (Three Columns)", "insert.footer", json!({"preset": "blankThree"}));
-            mi(ui, app, "Page Number", "insert.footer", json!({"preset": "pageNumber"}));
-            ui.separator();
-            mi(ui, app, "Edit Footer", "insert.editFooter", json!({}));
-            mi(ui, app, "Remove Footer", "insert.removeFooter", json!({}));
-        });
-        menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", |ui, app| {
-            mi(ui, app, "Top of Page", "insert.pageNumber", json!({"position": "top", "align": "right"}));
-            mi(ui, app, "Bottom of Page", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
-            mi(ui, app, "Page X of Y", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
-            mi(ui, app, "Current Position", "insert.pageNumber", json!({"position": "current"}));
-            mi(ui, app, "Format Page Numbers…", "layout.pageNumberFormat", json!({}));
-        });
+        hf_menus(ui, app);
     });
     group(ui, "Text", None, app, |ui, app| {
         big(ui, app, "textBox", "Text\nBox", "insert.textBox", json!({}), false);
@@ -2504,6 +2561,33 @@ mod tests {
             .collect();
         assert!(launchers.contains(&"layout.pageSetup"), "{launchers:?}");
         assert!(!launchers.contains(&"ui.dialog"), "{launchers:?}");
+    }
+
+    #[test]
+    fn format_page_numbers_opens_the_dialog_with_the_section() {
+        let mut app = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("layout.pageNumberFormat", json!({"format": "upperRoman", "start": 4})).unwrap();
+        let _ = app.run("ui.dialog", json!({"name": "pageNumberFormat"}));
+        match app.dialog.take() {
+            Some(crate::dialogs::Dialog::PageNumberFormat { format, start_at, start }) => {
+                assert_eq!(format, "upperRoman");
+                assert!(start_at, "start_at follows the section's start");
+                assert_eq!(start, 4);
+            }
+            _ => panic!("Format Page Numbers did not open"),
+        }
+    }
+
+    #[test]
+    fn header_footer_tools_tab_follows_the_caret() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        assert!(!contextual_tabs(&s).contains(&"Header & Footer"));
+        s.run("insert.header", &json!({"preset": "blank"})).unwrap();
+        assert!(editing_header_footer(&s), "the caret moves into the new header");
+        assert!(contextual_tabs(&s).contains(&"Header & Footer"));
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        assert!(!editing_header_footer(&s));
+        assert!(!contextual_tabs(&s).contains(&"Header & Footer"));
     }
 
     #[test]

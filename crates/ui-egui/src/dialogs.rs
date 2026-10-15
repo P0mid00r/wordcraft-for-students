@@ -247,6 +247,15 @@ pub enum Dialog {
         /// Section direction: right to left (`layout.sectionRtl`).
         rtl: bool,
     },
+    /// Insert › Header & Footer › Page Number › Format Page Numbers (#1051): the numbering's
+    /// number format and whether it continues from the previous section or starts at a number.
+    PageNumberFormat {
+        /// OOXML number format name (`decimal`, `upperRoman`…).
+        format: String,
+        /// Start at `start` rather than continue from the previous section.
+        start_at: bool,
+        start: u32,
+    },
     Link {
         url: String,
         text: String,
@@ -877,6 +886,7 @@ impl Dialog {
             Dialog::Find { tab: FindTab::GoTo, .. } => "goto",
             Dialog::InsertTable { .. } => "insertTable",
             Dialog::PageSetup { .. } => "pageSetup",
+            Dialog::PageNumberFormat { .. } => "pageNumberFormat",
             Dialog::Link { .. } => "link",
             Dialog::Bookmark { .. } => "bookmark",
             Dialog::WordCount { .. } => "wordCount",
@@ -1080,6 +1090,14 @@ impl Dialog {
                     grid,
                     grid_was: grid,
                     rtl: sp.rtl,
+                }
+            }
+            "pageNumberFormat" => {
+                let sp = wordcraft_engine::cmd::page::sect(&app.session);
+                Dialog::PageNumberFormat {
+                    format: sp.page_num_format.ooxml().to_string(),
+                    start_at: sp.page_num_start.is_some(),
+                    start: sp.page_num_start.unwrap_or(1).max(1),
                 }
             }
             "link" => Dialog::Link { url: "https://".into(), text: app.session.selected_text() },
@@ -1326,6 +1344,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::Find { .. } => "Find and Replace",
         Dialog::InsertTable { .. } => "Insert Table",
         Dialog::PageSetup { .. } => "Page Setup",
+        Dialog::PageNumberFormat { .. } => "Format Page Numbers",
         Dialog::Link { .. } => "Insert Hyperlink",
         Dialog::Bookmark { .. } => "Bookmark",
         Dialog::WordCount { .. } => "Word Count",
@@ -1924,6 +1943,41 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 if *rtl != wordcraft_engine::cmd::page::sect(&app.session).rtl {
                     let _ = app.run("layout.sectionRtl", json!({"value": *rtl}));
                 }
+            }
+            ok || cancel
+        }
+        Dialog::PageNumberFormat { format, start_at, start } => {
+            const FORMATS: [(&str, &str); 5] = [
+                ("decimal", "1, 2, 3, …"),
+                ("lowerLetter", "a, b, c, …"),
+                ("upperLetter", "A, B, C, …"),
+                ("lowerRoman", "i, ii, iii, …"),
+                ("upperRoman", "I, II, III, …"),
+            ];
+            ui.horizontal(|ui| {
+                ui.label(tl!("Number format"));
+                let shown = FORMATS.iter().find(|(v, _)| v == format).map_or(format.as_str(), |(_, l)| *l);
+                egui::ComboBox::from_id_salt("pnf_format").selected_text(shown).width(160.0).show_ui(ui, |ui| {
+                    for (v, l) in FORMATS {
+                        ui.selectable_value(format, v.to_string(), l);
+                    }
+                });
+            });
+            ui.add_space(6.0);
+            ui.radio_value(start_at, false, tl!("Continuous numbering"));
+            ui.horizontal(|ui| {
+                ui.radio_value(start_at, true, tl!("Start at:"));
+                ui.add_enabled(*start_at, egui::DragValue::new(start).range(1..=100_000));
+            });
+            let (ok, cancel) = buttons(ui, tl!("OK"));
+            if ok {
+                let mut v = json!({"format": format});
+                if *start_at {
+                    v["start"] = json!(*start);
+                } else {
+                    v["continue"] = json!(true);
+                }
+                let _ = app.run("layout.pageNumberFormat", v);
             }
             ok || cancel
         }

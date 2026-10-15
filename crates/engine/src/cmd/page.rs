@@ -71,17 +71,9 @@ pub fn specs() -> Vec<CommandSpec> {
             s.doc.settings.even_odd_headers = p::bool(v, "value").unwrap_or(!s.doc.settings.even_odd_headers);
             sel_result(s)
         }),
-        CommandSpec::new("layout.pageNumberFormat", "Format Page Numbers", "Insert › Header & Footer › Page Number", |s, v| {
-            let fmt = p::str(v, "format").map(wordcraft_doc::section::NumFormat::from_ooxml);
-            let start = p::u64(v, "start").map(|x| x.min(100_000) as u32);
-            with_sect(s, |x| {
-                if let Some(f) = fmt {
-                    x.page_num_format = f;
-                }
-                x.page_num_start = start;
-            })
-        })
-        .params(r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter", "start"?: n}"#),
+        CommandSpec::new("layout.pageNumberFormat", "Format Page Numbers", "Insert › Header & Footer › Page Number", page_number_format).params(
+            r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter", "start"?: n (start numbering at this number; null continues from the previous section), "continue"?: bool (same as start: null)}"#,
+        ),
         CommandSpec::new("layout.documentGrid", "Document Grid", "Layout › Page Setup › Document Grid", document_grid).params(
             r#"{"type"?: "none|lines|linesAndChars|snapToChars", "linesPerPage"?: n (sets the line pitch from the text height), "charsPerLine"?: n (sets the character pitch from the text width), "linePitch"?: pt, "charSpace"?: n (4096ths of a point added to the default font size: the character pitch)} — left out stays as it is; returns the grid with its lines per page and characters per line"#,
         ),
@@ -90,6 +82,36 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .pure(),
     ]
+}
+
+/// Format Page Numbers: the number format and where the numbering starts. With no parameters it
+/// opens the dialog (like `layout.pageSetup`) and reports the section's current settings, so the
+/// dialog and scripts read the same state; a programmatic call with `format`/`start`/`continue`
+/// applies them without a dialog. `start: null` or `continue: true` continues from the previous
+/// section; only the keys given change (setting a format keeps the current start).
+fn page_number_format(s: &mut Session, v: &Value) -> CmdResult {
+    let given = ["format", "start", "continue"].iter().any(|k| v.get(*k).is_some());
+    if !given {
+        s.ui_requests.push(json!({"open": "pageNumberFormat"}));
+        let sp = sect(s);
+        return Ok(json!({
+            "format": sp.page_num_format.ooxml(),
+            "start": sp.page_num_start,
+            "continue": sp.page_num_start.is_none(),
+        }));
+    }
+    let fmt = p::str(v, "format").map(wordcraft_doc::section::NumFormat::from_ooxml);
+    let continue_prev = p::bool(v, "continue").unwrap_or(false) || v.get("start").is_some_and(Value::is_null);
+    let start = p::u64(v, "start").map(|x| x.clamp(1, 100_000) as u32);
+    let start_given = v.get("start").is_some() || v.get("continue").is_some();
+    with_sect(s, |x| {
+        if let Some(f) = fmt {
+            x.page_num_format = f;
+        }
+        if start_given {
+            x.page_num_start = if continue_prev { None } else { start };
+        }
+    })
 }
 
 /// Line Numbers: on with a restart mode (`value`), or off (`none`). `start`, `countBy` and
@@ -701,5 +723,35 @@ mod tests {
         assert!(found > 0, "no candidates");
         assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body).matches('\u{ad}').count(), found);
         assert!(s.run("layout.manualHyphenation", &json!({"from": {"block": 999, "off": 0}})).unwrap()["done"] == true);
+    }
+
+    /// Format Page Numbers: no parameters opens the dialog and reports the section; `format`,
+    /// `start` and `continue` change only what they name, and `start: null` continues.
+    #[test]
+    fn format_page_numbers_reports_and_applies() {
+        use wordcraft_doc::section::NumFormat;
+        let mut s = doc();
+        let r = s.run("layout.pageNumberFormat", &json!({})).unwrap();
+        assert_eq!(r, json!({"format": "decimal", "start": null, "continue": true}));
+        assert_eq!(s.ui_requests.last(), Some(&json!({"open": "pageNumberFormat"})));
+        s.run("layout.pageNumberFormat", &json!({"format": "upperRoman", "start": 3})).unwrap();
+        assert_eq!(sect(&s).page_num_format, NumFormat::UpperRoman);
+        assert_eq!(sect(&s).page_num_start, Some(3));
+        // A format alone keeps the start.
+        s.run("layout.pageNumberFormat", &json!({"format": "lowerLetter"})).unwrap();
+        assert_eq!(sect(&s).page_num_format, NumFormat::LowerLetter);
+        assert_eq!(sect(&s).page_num_start, Some(3));
+        // Continue (or `start: null`) clears the start; a new start restores it.
+        s.run("layout.pageNumberFormat", &json!({"continue": true})).unwrap();
+        assert_eq!(sect(&s).page_num_start, None);
+        s.run("layout.pageNumberFormat", &json!({"start": 2})).unwrap();
+        assert_eq!(sect(&s).page_num_start, Some(2));
+        s.run("layout.pageNumberFormat", &json!({"start": null})).unwrap();
+        assert_eq!(sect(&s).page_num_start, None);
+        // The start is clamped to at least 1 and to the maximum.
+        s.run("layout.pageNumberFormat", &json!({"start": 0})).unwrap();
+        assert_eq!(sect(&s).page_num_start, Some(1));
+        s.run("layout.pageNumberFormat", &json!({"start": 1e9})).unwrap();
+        assert_eq!(sect(&s).page_num_start, Some(100_000));
     }
 }

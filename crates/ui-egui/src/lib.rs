@@ -416,6 +416,8 @@ pub struct WordApp {
     pub(crate) smart_art_typing: Option<usize>,
     /// The tab shown before Outline view brought up the Outlining tab (restored when it closes).
     pub(crate) outline_prev_tab: Option<String>,
+    /// The tab shown before the caret entered a header/footer (restored when it leaves).
+    pub(crate) hf_prev_tab: Option<String>,
     /// Zotero commands in flight (`ui.zotero.*`).
     pub zotero: zotero::ZoteroLink,
     /// The egui context, once the first frame has run (background work wakes the UI with it).
@@ -506,6 +508,7 @@ impl WordApp {
             smart_art_item: None,
             smart_art_typing: None,
             outline_prev_tab: None,
+            hf_prev_tab: None,
             zotero: zotero::ZoteroLink::default(),
             ctx: None,
             read_aloud_at: None,
