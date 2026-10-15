@@ -95,3 +95,38 @@ jobs:
           name: wordcraft-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
           path: dist/*
           retention-days: 7
+
+  # The browser build is the fourth platform: trunk builds the wasm32 bundle and package.sh zips
+  # it into a self-contained static site (packaging/web/README.md).
+  web:
+    name: Web (wasm32)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install trunk
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: trunk
+
+      - name: Build and package the web bundle
+        run: packaging/web/package.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcraft-Web-wasm32-${{ github.sha }}
+          path: dist/release/wordcraft-web-*.zip
+          retention-days: 7
