@@ -173,6 +173,15 @@ fn the_language_setting_is_a_ui_command_and_persists() {
 }
 
 #[test]
+fn a_fresh_install_opens_in_russian() {
+    // The production default (`i18n::default_pref`); built-in tests use `AUTO` so they stay English.
+    assert_eq!(DEFAULT, "ru");
+    assert_eq!(lang(DEFAULT).name(), "Русский");
+    assert_eq!(Lang::from_pref(DEFAULT).code(), "ru");
+    assert_eq!(default_pref(), AUTO, "tests drive the UI by its English labels");
+}
+
+#[test]
 fn ukrainian_locales_and_saved_preference_work_without_changing_the_document() {
     let uk = lang("uk");
     for tag in ["uk", "uk-UA", "UK_ua.UTF-8", "uk-Cyrl-UA", "uk_UA.UTF-8@euro"] {

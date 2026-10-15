@@ -194,7 +194,8 @@ pub struct UiState {
     pub author: String,
     /// Desktop: the main window's size and position, restored at the next launch.
     pub window: Option<window_geometry::WindowGeometry>,
-    /// Interface language: `auto` (follow the system) or a code from [`i18n::LANGUAGES`].
+    /// Interface language: `auto` (follow the system) or a code from [`i18n::LANGUAGES`]. A fresh
+    /// install starts in [`i18n::DEFAULT`] (Russian).
     pub language: String,
     /// Editing preferences; the session owns them while running (see [`WordApp::prefs`]).
     pub editing: wordcraft_engine::Prefs,
@@ -279,7 +280,7 @@ impl Default for UiState {
             show_discord: true,
             author: String::new(),
             window: None,
-            language: i18n::AUTO.into(),
+            language: i18n::default_pref().into(),
             editing: wordcraft_engine::Prefs::default(),
             read_aloud_rate: 1.0,
             read_aloud_skip_citations: true,

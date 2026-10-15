@@ -35,6 +35,17 @@ use catalog::Catalog;
 /// The `language` setting that follows the system.
 pub const AUTO: &str = "auto";
 
+/// The interface language a fresh install opens in (`ru`): WordCraft for Students starts in
+/// Russian, and the user can pick another in File › Options › Interface language.
+pub const DEFAULT: &str = "ru";
+
+/// The `language` setting a fresh install starts with: [`DEFAULT`]. Unit tests start in [`AUTO`]
+/// instead, which resolves to English under `cfg(test)` (see [`system_lang`]), so tests keep
+/// driving the UI by its English labels.
+pub fn default_pref() -> &'static str {
+    if cfg!(test) { AUTO } else { DEFAULT }
+}
+
 /// One supported interface language.
 pub struct LangInfo {
     /// BCP 47 code, lowercase (`ja`, `zh-hans`). Also the `language` setting's value.
