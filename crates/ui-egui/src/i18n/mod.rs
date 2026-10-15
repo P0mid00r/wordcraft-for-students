@@ -127,8 +127,17 @@ pub static LANGUAGES: [LangInfo; 19] = [
     // German, neutral across Germany, Austria and Switzerland; `de`, `de-DE`, `de-AT`, `de-CH` …
     // resolve here.
     LangInfo { code: "de", name: "Deutsch", source: include_str!("de.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
-    // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here.
-    LangInfo { code: "ru", name: "Русский", source: include_str!("ru.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here. WordCraft proofs
+    // Russian (spelling, grammar, suggestions), so new documents are written in Russian with this
+    // interface.
+    LangInfo {
+        code: "ru",
+        name: "Русский",
+        source: include_str!("ru.tsv"),
+        prefer_hans: false,
+        editing_lang: Some("ru-RU"),
+        catalog: OnceLock::new(),
+    },
     LangInfo { code: "tr", name: "Türkçe", source: include_str!("tr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Italian; `it-IT`, `it-CH` and `it-*` resolve here.
     LangInfo { code: "it", name: "Italiano", source: include_str!("it.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },

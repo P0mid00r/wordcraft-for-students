@@ -121,6 +121,11 @@ fn core_breaks(core: &[char], lang: ProofLang) -> (Vec<usize>, Source) {
     if lang == ProofLang::Pt {
         return core_breaks_pt(core);
     }
+    // Russian: no bundled hyphenation patterns, so the Russian syllable heuristic, never the
+    // English dictionary or patterns.
+    if lang == ProofLang::Ru {
+        return (heuristic_points_ru(core), Source::Heuristic);
+    }
     let dict = Dictionary::en_us();
     let s: String = core.iter().collect();
     let from_mask = |m: u64, len: usize| (1..len.min(64)).filter(|&i| m & (1 << i) != 0).collect::<Vec<_>>();
@@ -313,6 +318,12 @@ fn is_vowel(c: char) -> bool {
     if l.is_ascii() { matches!(l, 'a' | 'e' | 'i' | 'o' | 'u' | 'y') } else { l.is_alphabetic() && !NON_ASCII_CONSONANTS.contains(l) }
 }
 
+/// Russian vowels (used only for Russian hyphenation; the English heuristic keeps treating other
+/// scripts as unbreakable).
+fn is_vowel_ru(c: char) -> bool {
+    matches!(c.to_lowercase().next().unwrap_or(c), 'а' | 'е' | 'ё' | 'и' | 'о' | 'у' | 'ы' | 'э' | 'ю' | 'я')
+}
+
 fn onset_pair(a: char, b: char) -> bool {
     let (a, b) = (a.to_ascii_lowercase(), b.to_ascii_lowercase());
     matches!(
@@ -327,6 +338,16 @@ fn onset_pair(a: char, b: char) -> bool {
 
 /// Syllable heuristic: V-CV ("ty-po"), VC-CV ("hap-pen"), keeping onset clusters ("gra-phy").
 fn heuristic_points(c: &[char]) -> Vec<usize> {
+    heuristic_points_with(c, is_vowel)
+}
+
+/// Russian syllable heuristic (no bundled Russian patterns), using the Russian vowels.
+fn heuristic_points_ru(c: &[char]) -> Vec<usize> {
+    heuristic_points_with(c, is_vowel_ru)
+}
+
+/// [`heuristic_points`] with a given vowel test.
+fn heuristic_points_with(c: &[char], is_vowel: fn(char) -> bool) -> Vec<usize> {
     let n = c.len();
     if n < 4 || !c.iter().all(|c| c.is_alphabetic()) {
         return vec![];
