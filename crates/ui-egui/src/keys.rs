@@ -196,6 +196,30 @@ fn is_paste_special_release(key: Key, modifiers: egui::Modifiers) -> bool {
     key == Key::V && modifiers.command && modifiers.alt && !modifiers.shift
 }
 
+/// Whether the interface is showing a window whose text fields could take a paste: any dialog, the
+/// Colors dialog, the Backstage, or the built-in file browser. The document behind it must not
+/// receive a paste either while one is up.
+fn interface_owns_paste(app: &WordApp) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    let browser = app.file_browser.open.is_some();
+    #[cfg(target_arch = "wasm32")]
+    let browser = false;
+    app.dialog.is_some() || app.colors.is_some() || app.ui.backstage || browser
+}
+
+/// Pasting text into the interface is disabled in this build: a student could paste text into a
+/// dialog field (the Hyperlink dialog, say) and it would become document text. When a dialog, the
+/// Backstage or the built-in file browser owns the keyboard, drop the paste events so no text field
+/// ever sees them. The document's own paste is blocked in the engine; only a copied picture can
+/// still reach the canvas.
+pub fn block_interface_paste(app: &WordApp, ctx: &egui::Context) {
+    let canvas_may_paste = app.canvas.focused && !interface_owns_paste(app);
+    if canvas_may_paste {
+        return;
+    }
+    ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Paste(_))));
+}
+
 /// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
 /// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs.
 pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {

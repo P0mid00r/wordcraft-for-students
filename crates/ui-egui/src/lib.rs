@@ -1501,6 +1501,9 @@ impl WordApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
+        // Pasting text into any dialog, the Backstage or the file browser is disabled: strip the
+        // paste events before anything draws. The document's own paste is blocked in the engine.
+        keys::block_interface_paste(self, &ctx);
         i18n::set_current(i18n::Lang::from_pref(&self.ui.language));
         // Animation effects off: egui's scroll areas get a wheel notch whole, not eased in.
         if !self.animations_on() {
@@ -1980,6 +1983,33 @@ mod tests {
         assert_eq!(r["icon"], "sun");
         assert!(a.dialog.is_none(), "an id inserts without the dialog");
         assert!(a.selected_picture_media().is_some());
+    }
+
+    /// Students got text in through dialog fields (the Hyperlink dialog, say) by pasting into them.
+    /// While any dialog is up the paste is dropped before a field can see it, even though the
+    /// document canvas still holds the keyboard focus.
+    #[test]
+    fn paste_is_dropped_while_a_dialog_is_open() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the document has keyboard focus");
+        h.state_mut().run("ui.dialog", json!({"name": "link"})).unwrap();
+        h.step();
+        h.event(egui::Event::Paste("evil".into()));
+        h.step();
+        assert!(!h.ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Paste(_)))), "a dialog drops the paste");
+        let Some(dialogs::Dialog::Link { text, .. }) = h.state().dialog.clone() else { panic!("no link dialog: {:?}", h.state().dialog) };
+        assert!(!text.contains("evil"), "the dialog field stayed clear");
+        assert!(body_text(h.state()).is_empty(), "and nothing reached the document");
     }
 
     /// Table Layout › Properties (#44) opens the dialog from the ribbon; OK sends only what
