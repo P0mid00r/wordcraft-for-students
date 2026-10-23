@@ -2473,3 +2473,5 @@
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
 	Title Bar	Címsor
+	Input paused	Bevitel szüneteltetve
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Szokatlanul gyors gépelést észleltünk. A szövegbevitel {seconds} másodpercig szünetel.

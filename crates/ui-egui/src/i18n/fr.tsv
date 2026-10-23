@@ -2083,3 +2083,5 @@
 	Table Properties…	Propriétés du tableau…
 	Search	Rechercher
 	Title Bar	Barre de titre
+	Input paused	Saisie en pause
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Une frappe anormalement rapide a été détectée. La saisie de texte est en pause pendant {seconds} secondes.

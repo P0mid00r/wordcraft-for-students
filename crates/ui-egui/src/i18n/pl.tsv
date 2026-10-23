@@ -2468,3 +2468,5 @@ preview	Title	Tytuł
 	Typing	Pisanie
 	Search	Wyszukaj
 	Title Bar	Pasek tytułu
+	Input paused	Wprowadzanie wstrzymane
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Wykryto nietypowo szybkie pisanie. Wprowadzanie tekstu jest wstrzymane na {seconds} sekund.

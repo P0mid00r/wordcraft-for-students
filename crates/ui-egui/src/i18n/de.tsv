@@ -2074,3 +2074,5 @@
 	Automatic ({region})	Automatisch ({region})
 	Search	Suchen
 	Title Bar	Titelleiste
+	Input paused	Eingabe pausiert
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Ungewöhnlich schnelles Tippen erkannt. Die Texteingabe ist für {seconds} Sekunden pausiert.

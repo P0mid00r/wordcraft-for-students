@@ -2109,3 +2109,5 @@
 	Start-up	Käivitamine
 	Show the Start screen when WordCraft starts	Näita WordCrafti käivitamisel avakuva
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Sees: WordCraft avaneb vaates Fail › Avaleht, kus on tühi dokument, mallid ja hiljutised dokumendid. Väljas: avaneb tühi dokument.
+	Input paused	Sisestus peatatud
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Tuvastati ebatavaliselt kiire trükkimine. Teksti sisestamine on peatatud {seconds} sekundiks.

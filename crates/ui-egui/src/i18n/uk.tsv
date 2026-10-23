@@ -2087,3 +2087,5 @@
 	Start-up	Запуск
 	Show the Start screen when WordCraft starts	Показувати початковий екран під час запуску WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Увімкнено: WordCraft відкривається на сторінці Файл › Основне з порожнім документом, шаблонами та нещодавніми документами. Вимкнено: відкривається порожній документ.
+	Input paused	Введення призупинено
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Виявлено незвично швидке введення. Введення тексту призупинено на {seconds} секунд.

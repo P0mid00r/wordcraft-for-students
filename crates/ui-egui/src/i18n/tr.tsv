@@ -2473,3 +2473,5 @@ preview	Title	Örnek
 	Level 7	Düzey 7
 	Level 8	Düzey 8
 	Level 9	Düzey 9
+	Input paused	Giriş duraklatıldı
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Olağandışı hızlı yazma algılandı. Metin girişi {seconds} saniye duraklatıldı.

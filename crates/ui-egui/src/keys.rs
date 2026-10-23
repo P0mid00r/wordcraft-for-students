@@ -220,10 +220,34 @@ pub fn block_interface_paste(app: &WordApp, ctx: &egui::Context) {
     ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Paste(_))));
 }
 
+/// Characters this frame would put into the document, and whether it brought an IME commit or a
+/// key repeat. IME and repeat are the ways a person legitimately types a lot at once.
+fn typed_chars(events: &[egui::Event], modifiers: Modifiers) -> (usize, bool, bool) {
+    let text_allowed = !modifiers.command && !(modifiers.ctrl && !cfg!(target_os = "macos"));
+    let mut chars = 0usize;
+    let mut ime = false;
+    let mut repeat = false;
+    for event in events {
+        match event {
+            egui::Event::Text(text) if text_allowed && !text.is_empty() && text.chars().all(|c| !c.is_control()) => {
+                chars = chars.saturating_add(text.chars().count());
+            }
+            egui::Event::Ime(egui::ImeEvent::Commit(text)) if !text.is_empty() => ime = true,
+            egui::Event::Key { pressed: true, repeat: true, .. } => repeat = true,
+            _ => {}
+        }
+    }
+    (chars, ime, repeat)
+}
+
 /// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
 /// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs.
 pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     if app.ui.keytips != crate::keytips::Phase::Off {
+        return;
+    }
+    let now = crate::now_ms();
+    if app.input_guard.locked(now) {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
@@ -252,6 +276,15 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             }
         }
         return;
+    }
+    if app.input_guard.enabled {
+        let modifiers = ctx.input(|i| i.modifiers);
+        let (chars, ime, repeat) = typed_chars(&events, modifiers);
+        if app.input_guard.observe(now, chars, ime, repeat) {
+            app.canvas.ime_preedit.clear();
+            ctx.request_repaint();
+            return;
+        }
     }
     for e in events {
         // An Alt shortcut (Alt+Shift+D, Alt+F7…) may also send its key's text; it isn't typed.
@@ -408,6 +441,9 @@ fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
 
 /// Command shortcuts when the canvas isn't focused but no text field is either.
 pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
+    if app.input_guard.locked(crate::now_ms()) {
+        return;
+    }
     // Customize Keyboard records the keys pressed; they never run commands meanwhile.
     if app.canvas.focused || ctx.egui_wants_keyboard_input() || matches!(app.dialog, Some(crate::dialogs::Dialog::CustomizeKeyboard { .. })) {
         return;

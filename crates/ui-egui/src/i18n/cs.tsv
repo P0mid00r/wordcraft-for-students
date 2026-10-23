@@ -2080,3 +2080,5 @@
 	Automatic ({region})	Automaticky ({region})
 	Search	Hledat
 	Title Bar	Záhlaví okna
+	Input paused	Vkládání pozastaveno
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Bylo zjištěno neobvykle rychlé psaní. Vkládání textu je pozastaveno na {seconds} sekund.

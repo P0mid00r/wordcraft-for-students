@@ -54,6 +54,7 @@ pub mod frame;
 pub mod i18n;
 pub mod icons;
 pub mod ink;
+pub mod input_guard;
 pub mod keys;
 pub mod keytips;
 pub mod mini_toolbar;
@@ -376,6 +377,8 @@ pub struct WordApp {
     queued_shots: Vec<(u64, f64, u32)>,
     pending_shots: Vec<(u64, Option<String>, std::sync::mpsc::Sender<Value>, f64)>,
     pub(crate) synthetic: Vec<egui::Event>,
+    /// Pauses text input when typing is too fast or too regular to be a person.
+    pub input_guard: input_guard::InputGuard,
     /// Badge rects recorded during layout for the current keytip phase (cleared by `logic`, painted by `show`).
     pub(crate) keytip_rects: Vec<(egui::Rect, String)>,
     /// The Navigation pane's search box takes the keyboard on its next frame (Ctrl+F, #712).
@@ -484,6 +487,7 @@ impl WordApp {
             queued_shots: Vec::new(),
             pending_shots: Vec::new(),
             synthetic: Vec::new(),
+            input_guard: input_guard::InputGuard::default(),
             keytip_rects: Vec::new(),
             nav_search_focus: false,
             styled: false,
@@ -653,6 +657,9 @@ impl WordApp {
     /// Run a command for a script or an agent (control channel, MCP bridge): never asks first.
     /// UI-level commands (`ui.*`) are handled here, the rest by the engine.
     pub fn execute(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        if self.input_guard.locked(now_ms()) && input_guard::blocks_command(id) {
+            return Err(input_guard::PAUSED.into());
+        }
         // A pending Change Picture only survives until the next action (#147).
         if !matches!(id, "ui.changePicture" | "picture.change" | "insert.picture") {
             self.change_picture_target = None;
@@ -1315,6 +1322,15 @@ impl WordApp {
 
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
     pub fn logic(&mut self, ctx: &egui::Context) {
+        if self.input_guard.tick(now_ms()) {
+            // Nothing reaches a text field while typing is paused; the pause ends on the clock.
+            ctx.input_mut(|i| {
+                i.events.clear();
+                i.keys_down.clear();
+                i.modifiers = egui::Modifiers::default();
+            });
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         let lang = i18n::Lang::from_pref(&self.ui.language);
         i18n::set_current(lang);
         // New documents are written in the interface's language when WordCraft can proof it
@@ -1487,6 +1503,10 @@ impl WordApp {
 
     /// Inject synthetic input events from the control channel (one pointer event per frame).
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
+        if self.input_guard.locked(now_ms()) {
+            self.synthetic.clear();
+            return;
+        }
         if self.synthetic.is_empty() {
             return;
         }
@@ -1498,7 +1518,11 @@ impl WordApp {
             raw.events.push(egui::Event::PointerMoved(*p));
         }
         let n = n.min(self.synthetic.len());
+        let programmatic = self.synthetic.iter().take(n).any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Ime(_)));
         raw.events.extend(self.synthetic.drain(..n));
+        if programmatic {
+            self.input_guard.note_programmatic_text();
+        }
     }
 
     /// Lay out the window.
@@ -1544,6 +1568,7 @@ impl WordApp {
         read_aloud::show(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
         keys::global_shortcuts(self, &ctx);
+        input_guard::show(self, &ctx);
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
@@ -3144,6 +3169,55 @@ mod tests {
         h.step();
         assert!(h.state().session.dirty, "the keystroke reached the document");
         assert_eq!(reported.get(), Some(true), "the host was told before the frame ended");
+    }
+
+    /// Typing far faster than a person can pauses text input for a minute and says so; the
+    /// keystroke that tripped it never reaches the document.
+    #[test]
+    fn a_burst_of_typing_pauses_input_for_a_minute() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the page has keyboard focus");
+        h.state_mut().input_guard.enabled = true;
+
+        let burst = "agenthuman".repeat(20);
+        h.event(egui::Event::Text(burst.clone()));
+        h.step();
+        assert!(h.state().input_guard.locked(crate::now_ms()), "the burst tripped the pause");
+        assert!(!body_text(h.state()).contains(burst.as_str()), "the burst did not reach the document");
+
+        use egui_kittest::kittest::Queryable;
+        assert!(h.query_by_label_contains("Input paused").is_some(), "the dialog explains the pause");
+
+        h.event(egui::Event::Text("still blocked".into()));
+        h.step();
+        assert!(!body_text(h.state()).contains("still blocked"), "text is ignored during the pause");
+    }
+
+    /// A pause blocks the control channel's text too, not only the canvas.
+    #[test]
+    fn a_typing_pause_blocks_text_input_everywhere() {
+        use crate::control::{self, ControlRequest};
+
+        let mut a = app();
+        let now = crate::now_ms();
+        assert!(a.input_guard.observe(now, 100, false, false));
+        assert_eq!(a.run("text.insert", json!({"text": "x"})).unwrap_err(), input_guard::PAUSED);
+        let (req, _) = ControlRequest::new("ui.text", json!({"text": "x"}));
+        match control::handle(&mut a, &egui::Context::default(), &req) {
+            control::Outcome::Done(v) => assert_eq!(v["ok"], false, "{v}"),
+            control::Outcome::Screenshot { .. } => panic!("ui.text is not a screenshot"),
+        }
+        assert!(body_text(&a).is_empty(), "nothing was typed");
     }
 
     #[test]

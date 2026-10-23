@@ -2459,3 +2459,5 @@ preview	Title	Esempio
 	Automatic ({region})	Automatico ({region})
 	Search	Cerca
 	Title Bar	Barra del titolo
+	Input paused	Immissione in pausa
+	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Rilevata digitazione insolitamente rapida. L'immissione di testo è in pausa per {seconds} secondi.

@@ -198,6 +198,9 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
             ok(json!({"queued": true}))
         }
         "ui.key" => {
+            if app.input_guard.locked(crate::now_ms()) {
+                return err(crate::input_guard::PAUSED);
+            }
             let Some(k) = s("key").and_then(key_from) else { return err("unknown key") };
             let m = mods(p);
             app.synthetic.push(egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: m });
@@ -205,6 +208,9 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
             ok(json!({"queued": true}))
         }
         "ui.text" => {
+            if app.input_guard.locked(crate::now_ms()) {
+                return err(crate::input_guard::PAUSED);
+            }
             let Some(t) = s("text") else { return err("missing text") };
             app.synthetic.push(egui::Event::Text(t.to_string()));
             ok(json!({"queued": true}))
