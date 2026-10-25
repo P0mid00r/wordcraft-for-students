@@ -1,6 +1,6 @@
 # WordCraft architecture
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (`proof` is per language: English and Polish; previously major: first committed version; `plan/architecture.md` is local-only) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-25 · **Last updated:** 2026-10-25 · **Change:** minor (classroom protocol crate and portable teacher server; previously minor: `proof` is per language) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft is built today (origin/main `40c5d51`). The longer design notes in
 `plan/architecture.md` are gitignored and local to the original author's machine; this file is the
@@ -8,13 +8,14 @@ committed, current summary. Rules for working in the code are in [`AGENTS.md`](.
 
 ## Layers
 
-~85,600 lines of Rust, 15 crates, 3 apps and `xtask`. Layering is enforced by `cargo xtask layers`:
+~87,000 lines of Rust, 16 crates, 4 apps and `xtask`. Layering is enforced by `cargo xtask layers`:
 a crate may only depend on crates in lower layers, and nothing below L6 depends on egui, eframe,
 winit or rfd.
 
 | Layer | Crate | Lines | Job |
 |---|---|---|---|
 | L0 | `geom` | 0.2k | Units (points, twips, EMU, inches, cm), rectangles, measurement parsing |
+| L0 | `classroom` | 0.2k | Protocol between the teacher classroom server and web/desktop students: sessions, approval, suspicion, CAPTCHA and pause messages |
 | L1 | `doc` | 10.0k | Document model: stories, paragraphs, runs, tables, sections, styles, numbering, fields, notes, comments, revisions, equations (OMML-shaped math tree, linear/LaTeX input); edit primitives; bidi |
 | L1 | `fonts` | 2.3k | Font database (bundled OFL + system fonts), metrics, outlines, shaping with HarfRust, Word font substitution (`word.rs`: Carlito ↔ Calibri, Caladea ↔ Cambria, Liberation ↔ Arial/Times/Courier), OpenType MATH |
 | L1 | `proof` | 3.8k | Proofing per language (`ProofLang` from a run's `w:lang`): English (public-domain word list) and Polish (installed Hunspell dictionary through a Hunspell-style affix engine) spelling and suggestions, rule-based grammar for both, hyphenation dictionary and Liang patterns (English, Polish) |
@@ -32,6 +33,7 @@ winit or rfd.
 | apps | `wordcraft` | 1.6k | Desktop app (eframe + wgpu; logging, window geometry, file associations) |
 | apps | `wordcraft-cli` | 0.4k | `convert`, `text`, `inspect`, `run`, `commands`, `parity`, `mcp`, `zotero` |
 | apps | `wordcraft-web` | 0.3k | Browser build (eframe web runner, WebGPU with WebGL2 fallback) |
+| apps | `wordcraft-teacher` | 1.2k | Portable Windows/Linux classroom server: serves the web build, approves students, sends CAPTCHAs and 60-second pauses, browser dashboard |
 
 ## Data flow
 
@@ -64,5 +66,6 @@ winit or rfd.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | minor | `classroom` L0 protocol and the `wordcraft-teacher` app; students on web or desktop request access and the teacher sends CAPTCHA or pause messages |
 | 2026-10-10 | minor | `proof`: proofing languages (English, Polish), affix engine, Polish patterns; layout and engine route each run by its language |
 | 2026-10-10 | major | First committed architecture doc, from the crates' sources and `AGENTS.md` |

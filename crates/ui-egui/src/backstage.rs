@@ -199,6 +199,11 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
             "Good evening"
         },
     );
+    if app.classroom.available {
+        ui.add_space(6.0);
+        crate::classroom::access_button(app, ui);
+        ui.add_space(10.0);
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
         for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {

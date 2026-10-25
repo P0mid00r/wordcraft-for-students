@@ -1,0 +1,27 @@
+[package]
+name = "wordcraft-teacher"
+description = "WordCraft Teacher: a local classroom server and browser dashboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "wordcraft-teacher"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+wordcraft-classroom = { workspace = true }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "fs"] }
+tower-http = { version = "0.6", features = ["fs"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+env_logger = "0.11"
+getrandom = "0.3"
+if-addrs = "0.13"
+open = "5"

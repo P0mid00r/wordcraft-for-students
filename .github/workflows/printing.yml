@@ -8,7 +8,10 @@ on:
       - 'Cargo*'
       - 'apps/wordcraft/**'
       - 'apps/wordcraft-web/**'
+      - 'apps/wordcraft-teacher/**'
+      - 'crates/classroom/**'
       - 'crates/ui-egui/**'
+      - 'packaging/teacher/**'
       - '.github/workflows/printing.yml'
   push:
     branches: [main]
@@ -16,7 +19,10 @@ on:
       - 'Cargo*'
       - 'apps/wordcraft/**'
       - 'apps/wordcraft-web/**'
+      - 'apps/wordcraft-teacher/**'
+      - 'crates/classroom/**'
       - 'crates/ui-egui/**'
+      - 'packaging/teacher/**'
       - '.github/workflows/printing.yml'
   workflow_dispatch:
 
@@ -129,4 +135,83 @@ jobs:
         with:
           name: wordcraft-Web-wasm32-${{ github.sha }}
           path: dist/release/wordcraft-web-*.zip
+          retention-days: 7
+
+      - name: Upload the web files for the teacher build
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcraft-web-dist
+          path: dist/web
+          retention-days: 7
+
+  teacher:
+    name: Teacher (${{ matrix.name }})
+    needs: web
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, name: Linux-x86_64 }
+          - { os: windows-latest, name: Windows-x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wordcraft-web-dist
+          path: dist/web
+
+      - name: Build WordCraft Teacher
+        run: cargo build --release --locked -p wordcraft-teacher
+
+      - name: Package WordCraft Teacher (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p "dist/teacher/WordCraft-Teacher-${{ matrix.name }}"
+          cp target/release/wordcraft-teacher "dist/teacher/WordCraft-Teacher-${{ matrix.name }}/"
+          WEB="$(dirname "$(find dist/web -name index.html -print -quit)")"
+          test -f "$WEB/index.html"
+          cp -R "$WEB" "dist/teacher/WordCraft-Teacher-${{ matrix.name }}/web"
+          cp packaging/teacher/README.txt "dist/teacher/WordCraft-Teacher-${{ matrix.name }}/"
+          cp README.md LICENSE LICENSE-MIT LICENSE-APACHE NOTICE ATTRIBUTION.md "dist/teacher/WordCraft-Teacher-${{ matrix.name }}/" 2>/dev/null || true
+          tar -C dist/teacher -czf "dist/wordcraft-teacher-${{ matrix.name }}.tar.gz" "WordCraft-Teacher-${{ matrix.name }}"
+          ls -lh dist/wordcraft-teacher-*.tar.gz
+
+      - name: Package WordCraft Teacher (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Name = "WordCraft-Teacher-${{ matrix.name }}"
+          $Stage = "dist/teacher/$Name"
+          New-Item -ItemType Directory -Force -Path "$Stage/web" | Out-Null
+          Copy-Item "target/release/wordcraft-teacher.exe" "$Stage/"
+          $Index = Get-ChildItem -Path "dist/web" -Filter index.html -Recurse | Select-Object -First 1
+          if (-not $Index) { throw "dist/web/index.html not found" }
+          Copy-Item "$($Index.Directory.FullName)/*" "$Stage/web/" -Recurse
+          Copy-Item "packaging/teacher/README.txt" "$Stage/"
+          foreach ($file in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'ATTRIBUTION.md') {
+            if (Test-Path $file) { Copy-Item $file "$Stage/" }
+          }
+          Compress-Archive -Path "$Stage/*" -DestinationPath "dist/wordcraft-teacher-${{ matrix.name }}.zip"
+          Get-ChildItem dist/wordcraft-teacher-*.zip | Format-Table Name, Length
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcraft-teacher-${{ matrix.name }}-${{ github.sha }}
+          path: |
+            dist/wordcraft-teacher-*.zip
+            dist/wordcraft-teacher-*.tar.gz
+          if-no-files-found: error
           retention-days: 7

@@ -12,6 +12,7 @@
 mod animations;
 #[cfg(target_os = "macos")]
 mod apple_events;
+mod classroom_client;
 mod clipboard;
 mod control_server;
 mod default_apps;
@@ -36,13 +37,21 @@ struct App(
     Option<WindowGeometry>,
     Option<control_server::KeyFile>,
     file_dialogs::Launcher,
+    classroom_client::Link,
     #[cfg(target_os = "macos")] fmv_macos_events::Inbox,
 );
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
-        apple_events::poll(&self.4, &mut self.0, ctx);
+        apple_events::poll(&self.5, &mut self.0, ctx);
+        for message in self.4.poll() {
+            match message {
+                classroom_client::Incoming::Connected(reply) => self.0.classroom_connected(reply),
+                classroom_client::Incoming::Poll(reply) => self.0.classroom_incoming(reply),
+                classroom_client::Incoming::Failed(error) => self.0.classroom_failed(error),
+            }
+        }
         self.0.logic(ctx);
         self.3.show(frame);
         let prev = self.0.ui.window;
@@ -76,9 +85,13 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.0.ui(ui);
         self.3.show(frame);
+        for event in self.0.take_classroom_events() {
+            self.4.send(event);
+        }
     }
     fn on_exit(&mut self) {
         print::finish_pending_jobs();
+        self.4.stop();
         save_prefs(&self.0);
         if let Some(key_file) = &self.2 {
             key_file.remove();
@@ -347,11 +360,18 @@ fn main() -> eframe::Result {
                     log::warn!("{f}: {e}");
                 }
             }
+            app.classroom.available = true;
+            app.classroom.hostname = classroom_client::hostname();
+            if app.ui.classroom_id.is_empty() {
+                app.ui.classroom_id = classroom_client::client_id();
+            }
+            app.classroom.client_id = app.ui.classroom_id.clone();
             Ok(Box::new(App(
                 app,
                 restored,
                 key_file,
                 dialogs,
+                classroom_client::Link::default(),
                 #[cfg(target_os = "macos")]
                 apple_events.connect(&cc.egui_ctx),
             )))

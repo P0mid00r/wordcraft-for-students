@@ -60,11 +60,18 @@ pub fn start() {
                     session.system_region = region;
                     let mut app = WordApp::new(session, services(inbox.clone(), cc.egui_ctx.clone(), dirty, saves.clone()));
                     app.autosave = false;
+                    let classroom = crate::classroom::config().map(|api| {
+                        app.classroom.available = true;
+                        app.classroom.client_id = crate::classroom::client_id();
+                        app.classroom.platform =
+                            web_sys::window().and_then(|window| window.navigator().user_agent().ok()).unwrap_or_else(|| "web".into());
+                        crate::classroom::Link::new(api)
+                    });
                     // No document to show: start on File › Home, as the desktop app does (#766).
                     if !sample {
                         app.start_screen();
                     }
-                    Ok(Box::new(WebShell { app, inbox, saves }))
+                    Ok(Box::new(WebShell { app, inbox, saves, classroom }))
                 }),
             )
             .await;
@@ -87,6 +94,7 @@ struct WebShell {
     app: WordApp,
     inbox: Inbox,
     saves: Rc<PickerSaves>,
+    classroom: Option<crate::classroom::Link>,
 }
 
 /// Saves the browser's save picker finishes after `download` has returned (#728). The app marks
@@ -138,6 +146,15 @@ impl eframe::App for WebShell {
             });
         }
         self.settle_picker_saves();
+        if let Some(classroom) = &mut self.classroom {
+            for message in classroom.poll() {
+                match message {
+                    crate::classroom::Incoming::Connected(reply) => self.app.classroom_connected(reply),
+                    crate::classroom::Incoming::Poll(reply) => self.app.classroom_incoming(reply),
+                    crate::classroom::Incoming::Failed(error) => self.app.classroom_failed(error),
+                }
+            }
+        }
         self.app.logic(ctx);
     }
 
@@ -147,6 +164,11 @@ impl eframe::App for WebShell {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.app.ui(ui);
+        if let Some(classroom) = &mut self.classroom {
+            for event in self.app.take_classroom_events() {
+                classroom.send(event);
+            }
+        }
     }
 }
 

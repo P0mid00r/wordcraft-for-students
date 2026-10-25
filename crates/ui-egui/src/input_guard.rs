@@ -31,20 +31,46 @@ const REGULAR_MAX_STDDEV_MS: f64 = 6.0;
 /// The error a command returns while typing is paused.
 pub const PAUSED: &str = "text input is paused";
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PauseReason {
+    #[default]
+    Detected,
+    Teacher,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Suspicion {
+    pub reason: String,
+    pub detail: String,
+}
+
 /// Tracks text input and holds the one-minute pause.
 pub struct InputGuard {
     /// Off in `cfg(test)`: existing tests inject whole strings in one frame. A test that wants
     /// the guard sets it to true.
     pub enabled: bool,
+    /// Report a suspicion instead of pausing locally; the classroom teacher decides.
+    pub report_only: bool,
     samples: VecDeque<(f64, usize)>,
     locked_until: Option<f64>,
+    reason: PauseReason,
     expired: bool,
     skip_frame: bool,
+    suspicion: Option<Suspicion>,
 }
 
 impl Default for InputGuard {
     fn default() -> Self {
-        Self { enabled: !cfg!(test), samples: VecDeque::new(), locked_until: None, expired: false, skip_frame: false }
+        Self {
+            enabled: !cfg!(test),
+            report_only: false,
+            samples: VecDeque::new(),
+            locked_until: None,
+            reason: PauseReason::Detected,
+            expired: false,
+            skip_frame: false,
+            suspicion: None,
+        }
     }
 }
 
@@ -73,13 +99,44 @@ impl InputGuard {
         let oldest = self.samples.front().map(|(at, _)| *at).unwrap_or(now);
         let seconds = ((now - oldest) / 1000.0).max(MIN_SPAN_SECONDS);
         let cps = total as f64 / seconds;
-        if chars >= BURST_CHARS || cps > MAX_CPS || self.metronomic() {
-            self.samples.clear();
-            self.locked_until = Some(now + LOCKOUT_MS);
-            log::warn!("text input paused: {total} characters in {seconds:.2} s");
-            return true;
+        let reason = if chars >= BURST_CHARS {
+            "burst"
+        } else if cps > MAX_CPS {
+            "fast"
+        } else if self.metronomic() {
+            "regular"
+        } else {
+            return false;
+        };
+        let detail = format!("{total} / {seconds:.1} s");
+        self.samples.clear();
+        if self.report_only {
+            log::warn!("typing suspicion reported: {reason}, {detail}");
+            self.suspicion = Some(Suspicion { reason: reason.into(), detail });
+            return false;
         }
-        false
+        self.locked_until = Some(now + LOCKOUT_MS);
+        self.reason = PauseReason::Detected;
+        log::warn!("text input paused: {detail}");
+        true
+    }
+
+    pub fn take_suspicion(&mut self) -> Option<Suspicion> {
+        self.suspicion.take()
+    }
+
+    pub fn pause_for(&mut self, now: f64, seconds: u64) {
+        let seconds = seconds.clamp(1, LOCKOUT_SECONDS);
+        self.samples.clear();
+        self.locked_until = Some(now + seconds as f64 * 1000.0);
+        self.reason = PauseReason::Teacher;
+        self.expired = false;
+    }
+
+    pub fn release(&mut self) {
+        self.locked_until = None;
+        self.expired = false;
+        self.samples.clear();
     }
 
     fn metronomic(&self) -> bool {
@@ -153,14 +210,15 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         return;
     }
     let seconds = app.input_guard.remaining_seconds(now);
+    let body = match app.input_guard.reason {
+        PauseReason::Detected => crate::tl!("Unusually fast typing was detected. Text input is paused for {seconds} seconds."),
+        PauseReason::Teacher => crate::tl!("Your teacher paused text input for {seconds} seconds."),
+    };
     let _ = egui::Modal::new(egui::Id::new("wordcraft.inputPaused")).show(ctx, |ui| {
         ui.set_max_width(380.0);
         ui.heading(crate::tl!("Input paused"));
         ui.add_space(6.0);
-        ui.label(crate::i18n::fmt(
-            crate::tl!("Unusually fast typing was detected. Text input is paused for {seconds} seconds."),
-            &[("seconds", &seconds.to_string())],
-        ));
+        ui.label(crate::i18n::fmt(body, &[("seconds", &seconds.to_string())]));
         ui.add_space(10.0);
         let left = (seconds as f32 / LOCKOUT_SECONDS as f32).clamp(0.0, 1.0);
         ui.add(egui::ProgressBar::new(left).desired_width(340.0));
@@ -236,6 +294,27 @@ mod tests {
     fn zero_time_never_locks() {
         let mut guard = guard();
         assert!(!guard.observe(0.0, 100, false, false));
+    }
+
+    #[test]
+    fn report_only_records_a_suspicion_without_locking() {
+        let mut guard = guard();
+        guard.report_only = true;
+        assert!(!guard.observe(1_000.0, 100, false, false));
+        assert!(!guard.locked(1_000.0));
+        let suspicion = guard.take_suspicion().unwrap();
+        assert_eq!(suspicion.reason, "burst");
+        assert!(suspicion.detail.contains("100"));
+    }
+
+    #[test]
+    fn a_teacher_pause_locks_and_can_be_released() {
+        let mut guard = guard();
+        guard.pause_for(1_000.0, 60);
+        assert!(guard.locked(1_000.0));
+        assert_eq!(guard.remaining_seconds(1_000.0), 60);
+        guard.release();
+        assert!(!guard.locked(1_000.0));
     }
 
     #[test]

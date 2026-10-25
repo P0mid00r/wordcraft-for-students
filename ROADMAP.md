@@ -135,6 +135,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-25 | Classroom: a portable WordCraft Teacher server serves the web build and a browser dashboard; web and desktop students ask for access, the teacher approves and renames each computer, can send a distorted-text or arithmetic CAPTCHA or a 60-second pause, and sees auto-input suspicion and CAPTCHA-solved events. Printing builds the teacher app for Windows and Linux and ships the web folder beside it |
 | 2026-10-23 | Typing that is too fast or too regular to be a person pauses text input for a minute: a dialog explains the pause and counts down, the burst that tripped it never reaches the document, and commands that do not type (saving, closing) still run; control-channel text is not mistaken for typing |
 | 2026-10-15 | Ribbon: the contextual Header & Footer Tools ▸ Design tab comes up while the caret is in a header or footer (Header/Footer/Page Number menus, Different First Page and Different Odd & Even Pages, Navigation, Close) and goes away when it leaves. Format Page Numbers… opens a dialog for the number format and where numbering starts or continues (`layout.pageNumberFormat` opens it with no parameters) |
 | 2026-10-12 | RTF import now uses the RTF spec's defaults where a file names none (#902): no space before or after paragraphs, single line spacing, and the `\deff` default font, instead of WordCraft's Normal style; RTF files that relied on the old defaults open tighter, like in Word |

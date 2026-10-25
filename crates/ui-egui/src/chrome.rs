@@ -410,6 +410,27 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+                    if app.classroom.available {
+                        use crate::classroom::Phase;
+                        let label = match app.classroom.phase {
+                            Phase::Off => Some(crate::tl!("Class access")),
+                            Phase::Active => Some(crate::tl!("Class access: connected")),
+                            Phase::Pending => Some(crate::tl!("Waiting for the teacher's approval")),
+                            Phase::Denied => Some(crate::tl!("Access denied")),
+                            Phase::Disconnected => Some(crate::tl!("Class access: offline")),
+                            Phase::Connecting => Some(crate::tl!("Connecting…")),
+                        };
+                        if let Some(label) = label {
+                            if app.classroom.phase == Phase::Off {
+                                if ui.add(egui::Button::new(egui::RichText::new(label).size(12.0)).frame(false)).clicked() {
+                                    let _ = app.run("ui.classroomAccess", json!({}));
+                                }
+                            } else {
+                                ui.label(egui::RichText::new(label).size(12.0).color(t.text_dim));
+                            }
+                        }
+                        ui.separator();
+                    }
                     let reading = app.session.view.read_mode;
                     let z = (if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT } * 100.0).round();
                     let ztxt = format!("{z}%");

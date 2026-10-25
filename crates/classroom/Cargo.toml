@@ -1,0 +1,16 @@
+[package]
+name = "wordcraft-classroom"
+description = "Protocol shared by WordCraft students and the teacher's local classroom server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

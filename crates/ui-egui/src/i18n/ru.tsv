@@ -2476,3 +2476,35 @@ preview	Title	Пример
 	Level 9	Уровень 9
 	Input paused	Ввод приостановлен
 	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Обнаружен необычно быстрый ввод. Ввод текста приостановлен на {seconds} секунд.
+	Enter your full name.	Введите ФИО.
+	Enter the teacher's address.	Введите адрес преподавателя.
+	Enter a port from 1 to 65535.	Введите порт от 1 до 65535.
+	Access revoked by the teacher.	Преподаватель отозвал доступ.
+	The teacher's server stopped.	Сервер преподавателя остановлен.
+	Enter the answer.	Введите ответ.
+	Checking…	Проверка…
+	Connecting…	Подключение…
+	Waiting for the teacher's approval	Ожидание разрешения преподавателя
+	Class access: connected	Доступ к классу: подключено
+	Access denied	Доступ запрещён
+	Class access: offline	Доступ к классу: нет связи
+	Get access to the class	Получить доступ к классу
+	Class access	Доступ к классу
+	Teacher address	Адрес преподавателя
+	Port	Порт
+	Full name	ФИО
+	Connect	Подключиться
+	The teacher must allow this computer before you can edit.	Преподаватель должен разрешить этот компьютер, чтобы вы могли редактировать.
+	Leave	Выйти
+	The teacher did not allow this computer.	Преподаватель не разрешил этот компьютер.
+	Reconnect	Переподключиться
+	Connection lost	Связь потеряна
+	The connection to the teacher was lost.	Связь с преподавателем потеряна.
+	Verification	Проверка
+	Your teacher asks you to prove you are typing.	Преподаватель просит подтвердить, что вы печатаете вручную.
+	Type the code shown.	Введите код с картинки.
+	Answer	Ответ
+	Submit	Отправить
+	Ask the teacher if you cannot read the code.	Если код не читается, попросите преподавателя снять проверку.
+	Your teacher paused text input for {seconds} seconds.	Преподаватель приостановил ввод текста на {seconds} секунд.
+	Could not connect to the teacher's server.	Не удалось подключиться к серверу преподавателя.

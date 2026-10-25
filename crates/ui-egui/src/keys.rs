@@ -247,7 +247,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         return;
     }
     let now = crate::now_ms();
-    if app.input_guard.locked(now) {
+    if app.input_guard.locked(now) || app.classroom.blocks_editing() {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
@@ -280,7 +280,11 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     if app.input_guard.enabled {
         let modifiers = ctx.input(|i| i.modifiers);
         let (chars, ime, repeat) = typed_chars(&events, modifiers);
-        if app.input_guard.observe(now, chars, ime, repeat) {
+        let paused = app.input_guard.observe(now, chars, ime, repeat);
+        if let Some(suspicion) = app.input_guard.take_suspicion() {
+            app.classroom.report_suspicion(suspicion.reason, suspicion.detail);
+        }
+        if paused {
             app.canvas.ime_preedit.clear();
             ctx.request_repaint();
             return;
@@ -441,7 +445,7 @@ fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
 
 /// Command shortcuts when the canvas isn't focused but no text field is either.
 pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
-    if app.input_guard.locked(crate::now_ms()) {
+    if app.input_guard.locked(crate::now_ms()) || app.classroom.blocks_editing() || app.classroom.join_open {
         return;
     }
     // Customize Keyboard records the keys pressed; they never run commands meanwhile.

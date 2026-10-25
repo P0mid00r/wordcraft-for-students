@@ -26,6 +26,7 @@ pub mod backstage;
 pub mod canvas;
 pub mod caret_glide;
 pub mod chrome;
+pub mod classroom;
 pub mod colors;
 pub mod content_controls;
 pub mod control;
@@ -255,6 +256,9 @@ pub struct UiState {
     pub update_fields_before_print: bool,
     /// The custom dictionary (File › Options › Proofing, Add to Dictionary), kept between runs.
     pub dictionary: Vec<String>,
+    /// Stable id for the teacher's classroom approval, kept between runs.
+    #[serde(default)]
+    pub classroom_id: String,
 }
 
 /// Most recent documents kept (File › Options › Advanced offers 0–50, as Word does).
@@ -304,6 +308,7 @@ impl Default for UiState {
             print_backgrounds: false,
             update_fields_before_print: false,
             dictionary: Vec::new(),
+            classroom_id: String::new(),
         }
     }
 }
@@ -379,6 +384,7 @@ pub struct WordApp {
     pub(crate) synthetic: Vec<egui::Event>,
     /// Pauses text input when typing is too fast or too regular to be a person.
     pub input_guard: input_guard::InputGuard,
+    pub classroom: classroom::Classroom,
     /// Badge rects recorded during layout for the current keytip phase (cleared by `logic`, painted by `show`).
     pub(crate) keytip_rects: Vec<(egui::Rect, String)>,
     /// The Navigation pane's search box takes the keyboard on its next frame (Ctrl+F, #712).
@@ -488,6 +494,7 @@ impl WordApp {
             pending_shots: Vec::new(),
             synthetic: Vec::new(),
             input_guard: input_guard::InputGuard::default(),
+            classroom: classroom::Classroom::default(),
             keytip_rects: Vec::new(),
             nav_search_focus: false,
             styled: false,
@@ -532,6 +539,43 @@ impl WordApp {
     pub fn with_control(mut self, rx: std::sync::mpsc::Receiver<ControlRequest>) -> Self {
         self.control_rx = Some(rx);
         self
+    }
+
+    pub fn take_classroom_events(&mut self) -> Vec<classroom::Event> {
+        self.classroom.take_events()
+    }
+
+    pub fn classroom_connected(&mut self, reply: wordcraft_classroom::HelloReply) {
+        self.classroom_controls(&reply.messages);
+        self.classroom.connected(reply);
+        self.input_guard.report_only = self.classroom.is_connected();
+    }
+
+    pub fn classroom_incoming(&mut self, reply: wordcraft_classroom::PollReply) {
+        self.classroom_controls(&reply.messages);
+        self.classroom.incoming(reply);
+        self.input_guard.report_only = self.classroom.is_connected();
+    }
+
+    pub fn classroom_failed(&mut self, message: String) {
+        self.classroom.failed(message);
+        self.input_guard.release();
+        self.input_guard.report_only = false;
+    }
+
+    fn classroom_controls(&mut self, messages: &[wordcraft_classroom::ServerMessage]) {
+        use wordcraft_classroom::ServerMessage;
+        for message in messages {
+            match message {
+                ServerMessage::Pause { seconds } => self.input_guard.pause_for(now_ms(), *seconds),
+                ServerMessage::Unpause => {
+                    self.input_guard.release();
+                    self.canvas.want_focus = true;
+                }
+                ServerMessage::Revoked | ServerMessage::Denied { .. } | ServerMessage::Shutdown => self.input_guard.release(),
+                _ => {}
+            }
+        }
     }
 
     /// Start-up with no document to open (#766): show File › Home (Blank document, the templates
@@ -659,6 +703,9 @@ impl WordApp {
     pub fn execute(&mut self, id: &str, params: Value) -> Result<Value, String> {
         if self.input_guard.locked(now_ms()) && input_guard::blocks_command(id) {
             return Err(input_guard::PAUSED.into());
+        }
+        if self.classroom.blocks_editing() && input_guard::blocks_command(id) {
+            return Err(classroom::PAUSED.into());
         }
         // A pending Change Picture only survives until the next action (#147).
         if !matches!(id, "ui.changePicture" | "picture.change" | "insert.picture") {
@@ -1106,6 +1153,21 @@ impl WordApp {
                 self.open_dialog();
                 json!({})
             }
+            "ui.classroomAccess" => {
+                self.classroom.open_join();
+                json!({"available": self.classroom.available, "open": self.classroom.join_open})
+            }
+            "ui.classroomState" => json!({
+                "available": self.classroom.available,
+                "phase": format!("{:?}", self.classroom.phase),
+                "captcha": self.classroom.captcha.is_some(),
+                "session": self.classroom.session,
+            }),
+            "ui.classroomLeave" => {
+                self.classroom.leave();
+                self.input_guard.release();
+                json!({})
+            }
             // The built-in file browser (#576), for when the system's file dialog doesn't show up
             // (desktop only): `purpose` is document (default), picture, recipients or save. A system
             // dialog still waiting for an answer is given up as cancelled.
@@ -1322,6 +1384,10 @@ impl WordApp {
 
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
     pub fn logic(&mut self, ctx: &egui::Context) {
+        self.input_guard.report_only = self.classroom.is_connected();
+        if self.classroom.phase != classroom::Phase::Off {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
         if self.input_guard.tick(now_ms()) {
             // Nothing reaches a text field while typing is paused; the pause ends on the clock.
             ctx.input_mut(|i| {
@@ -1569,6 +1635,7 @@ impl WordApp {
         crate::keytips::show(self, &ctx, ui);
         keys::global_shortcuts(self, &ctx);
         input_guard::show(self, &ctx);
+        classroom::show(self, &ctx);
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
@@ -1580,6 +1647,9 @@ impl WordApp {
         self.frame_ms = now_ms() - t0;
         // Typing and formatting land here, after `logic` has reported.
         self.report_dirty();
+        if self.classroom.phase != classroom::Phase::Off {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 
     /// Files that arrived asynchronously (web picker, drops): documents open, pictures insert,
@@ -3201,6 +3271,71 @@ mod tests {
         h.event(egui::Event::Text("still blocked".into()));
         h.step();
         assert!(!body_text(h.state()).contains("still blocked"), "text is ignored during the pause");
+    }
+
+    #[test]
+    fn the_start_screen_offers_class_access_when_available() {
+        let mut a = app();
+        a.classroom.available = true;
+        a.start_screen();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.get_by_label("Get access to the class").click();
+        h.step();
+        assert!(h.state().classroom.join_open);
+    }
+
+    #[test]
+    fn classroom_approval_captcha_and_teacher_pause_gate_editing() {
+        use wordcraft_classroom::{CaptchaKind, CaptchaPrompt, HelloReply, PollReply, ServerMessage, SessionStatus};
+
+        let mut a = app();
+        a.classroom.available = true;
+        a.classroom.address = "127.0.0.1".into();
+        a.classroom.port = "8770".into();
+        a.classroom.full_name = "Иван".into();
+        a.classroom.submit_join();
+        assert!(a.classroom.blocks_editing());
+        assert!(matches!(a.take_classroom_events().as_slice(), [classroom::Event::Connect { .. }]));
+
+        a.classroom_connected(HelloReply { session: "s1".into(), status: SessionStatus::Pending, messages: vec![ServerMessage::Pending], cursor: 1 });
+        assert!(a.classroom.blocks_editing());
+        assert_eq!(a.run("text.insert", json!({"text": "no"})).unwrap_err(), classroom::PAUSED);
+
+        a.classroom_incoming(PollReply { status: SessionStatus::Active, messages: vec![ServerMessage::Approved], cursor: 2 });
+        assert!(!a.classroom.blocks_editing());
+        a.run("text.insert", json!({"text": "ok"})).unwrap();
+
+        let prompt = CaptchaPrompt { id: "c1".into(), kind: CaptchaKind::Text, prompt: "ABCDE".into() };
+        a.classroom_incoming(PollReply { status: SessionStatus::Captcha, messages: vec![ServerMessage::Captcha { prompt }], cursor: 3 });
+        assert!(a.classroom.blocks_editing());
+        assert_eq!(a.run("text.insert", json!({"text": "no"})).unwrap_err(), classroom::PAUSED);
+        a.classroom.captcha_answer = "abcde".into();
+        a.classroom.answer();
+        assert!(matches!(a.take_classroom_events().last(), Some(classroom::Event::Answer { .. })));
+
+        a.classroom_incoming(PollReply {
+            status: SessionStatus::Active,
+            messages: vec![ServerMessage::CaptchaResult { id: "c1".into(), ok: true, message: "ok".into() }],
+            cursor: 4,
+        });
+        assert!(!a.classroom.blocks_editing());
+
+        a.classroom_incoming(PollReply { status: SessionStatus::Paused, messages: vec![ServerMessage::Pause { seconds: 60 }], cursor: 5 });
+        assert!(a.input_guard.locked(crate::now_ms()));
+        assert_eq!(a.run("text.insert", json!({"text": "no"})).unwrap_err(), input_guard::PAUSED);
+
+        a.classroom_incoming(PollReply { status: SessionStatus::Active, messages: vec![ServerMessage::Unpause], cursor: 6 });
+        assert!(!a.input_guard.locked(crate::now_ms()));
     }
 
     /// A pause blocks the control channel's text too, not only the canvas.

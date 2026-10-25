@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 wordcraft-doc = { workspace = true }
 wordcraft-engine = { workspace = true }
+wordcraft-classroom = { workspace = true }
 wordcraft-proof = { workspace = true }
 # Fonts the user added (#582) load from the settings folder at start-up.
 wordcraft-fonts = { workspace = true }
@@ -21,6 +22,7 @@ wordcraft-ui-egui = { workspace = true }
 wordcraft-control-key = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "links"] }
 egui = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 
@@ -77,3 +79,6 @@ pollster = "0.4"
 arboard = { workspace = true, features = ["image-data"] }
 # The control server's random key.
 getrandom = "0.3"
+# Classroom: blocking HTTP/JSON to the teacher's local server.
+ureq = { version = "2.12", default-features = false, features = ["json"] }
+hostname = "0.4"

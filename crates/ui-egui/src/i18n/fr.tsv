@@ -2085,3 +2085,35 @@
 	Title Bar	Barre de titre
 	Input paused	Saisie en pause
 	Unusually fast typing was detected. Text input is paused for {seconds} seconds.	Une frappe anormalement rapide a été détectée. La saisie de texte est en pause pendant {seconds} secondes.
+	Enter your full name.	Enter your full name.
+	Enter the teacher's address.	Enter the teacher's address.
+	Enter a port from 1 to 65535.	Enter a port from 1 to 65535.
+	Access revoked by the teacher.	Access revoked by the teacher.
+	The teacher's server stopped.	The teacher's server stopped.
+	Enter the answer.	Enter the answer.
+	Checking…	Checking…
+	Connecting…	Connecting…
+	Waiting for the teacher's approval	Waiting for the teacher's approval
+	Class access: connected	Class access: connected
+	Access denied	Access denied
+	Class access: offline	Class access: offline
+	Get access to the class	Get access to the class
+	Class access	Class access
+	Teacher address	Teacher address
+	Port	Port
+	Full name	Full name
+	Connect	Connect
+	The teacher must allow this computer before you can edit.	The teacher must allow this computer before you can edit.
+	Leave	Leave
+	The teacher did not allow this computer.	The teacher did not allow this computer.
+	Reconnect	Reconnect
+	Connection lost	Connection lost
+	The connection to the teacher was lost.	The connection to the teacher was lost.
+	Verification	Verification
+	Your teacher asks you to prove you are typing.	Your teacher asks you to prove you are typing.
+	Type the code shown.	Type the code shown.
+	Answer	Answer
+	Submit	Submit
+	Ask the teacher if you cannot read the code.	Ask the teacher if you cannot read the code.
+	Your teacher paused text input for {seconds} seconds.	Your teacher paused text input for {seconds} seconds.
+	Could not connect to the teacher's server.	Could not connect to the teacher's server.
