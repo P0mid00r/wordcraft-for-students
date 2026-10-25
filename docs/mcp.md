@@ -5,7 +5,7 @@ Claude and other agents can write and edit documents.
 
 ```sh
 wordcraft-cli mcp                          # headless session (no window)
-wordcraft --control 7981 &                 # or: drive the running app…
+WORDCRAFT_NO_CLASSROOM=1 wordcraft --control 7981 &   # or: drive the running app…
 wordcraft-cli mcp --connect 127.0.0.1:7981 # …including clicks, keys and screenshots
 ```
 
@@ -65,7 +65,7 @@ config works across the suite) keep the agent to the folders you give it:
 
 The flags confine the headless server; `--connect` with them is an error, since the server would
 otherwise talk to an app that isn't confined. WordCraft's desktop app has no equivalent flags yet,
-so a running app (`wordcraft --control`) is not confined.
+so a running app (`WORDCRAFT_NO_CLASSROOM=1 wordcraft --control`) is not confined.
 
 What the roots do not cover: commands that take no path (`text.insert`, `execute` of anything that
 works on the open document) can still read and change that document, and `get_text` and

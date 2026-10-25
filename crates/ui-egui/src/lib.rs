@@ -259,6 +259,13 @@ pub struct UiState {
     /// Stable id for the teacher's classroom approval, kept between runs.
     #[serde(default)]
     pub classroom_id: String,
+    /// The teacher server saved from the last run, so the next launch asks for access again.
+    #[serde(default)]
+    pub classroom_address: String,
+    #[serde(default)]
+    pub classroom_port: String,
+    #[serde(default)]
+    pub classroom_name: String,
 }
 
 /// Most recent documents kept (File › Options › Advanced offers 0–50, as Word does).
@@ -309,6 +316,9 @@ impl Default for UiState {
             update_fields_before_print: false,
             dictionary: Vec::new(),
             classroom_id: String::new(),
+            classroom_address: String::new(),
+            classroom_port: String::new(),
+            classroom_name: String::new(),
         }
     }
 }
@@ -606,6 +616,9 @@ impl WordApp {
         ui.keyboard = self.session.keymap.clone();
         ui.ribbon = self.session.ribbon.clone();
         ui.ink_pens = self.session.view.draw.pens.clone();
+        ui.classroom_address = self.classroom.address.clone();
+        ui.classroom_port = self.classroom.port.clone();
+        ui.classroom_name = self.classroom.full_name.clone();
         ui
     }
 
@@ -613,6 +626,15 @@ impl WordApp {
     pub fn apply_prefs(&mut self, ui: UiState) {
         self.ui = ui;
         self.ui.backstage = false;
+        if !self.ui.classroom_address.is_empty() {
+            self.classroom.address = self.ui.classroom_address.clone();
+        }
+        if !self.ui.classroom_port.is_empty() {
+            self.classroom.port = self.ui.classroom_port.clone();
+        }
+        if !self.ui.classroom_name.is_empty() {
+            self.classroom.full_name = self.ui.classroom_name.clone();
+        }
         // A `ui.json` from before the theme setting: its dark-mode switch picks Dark or Light.
         if let Some(dark) = self.ui.legacy_dark.take() {
             self.ui.theme = if dark { theme::Appearance::Dark } else { theme::Appearance::Light };
@@ -1384,11 +1406,16 @@ impl WordApp {
 
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
     pub fn logic(&mut self, ctx: &egui::Context) {
+        let now = now_ms();
+        self.classroom.auto_start();
+        if self.classroom.phase == classroom::Phase::Disconnected && !self.classroom.join_open && self.classroom.retry_due(now) {
+            self.classroom.reconnect();
+        }
         self.input_guard.report_only = self.classroom.is_connected();
-        if self.classroom.phase != classroom::Phase::Off {
+        if self.classroom.phase != classroom::Phase::Off || self.classroom.join_open {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
-        if self.input_guard.tick(now_ms()) {
+        if self.input_guard.tick(now) {
             // Nothing reaches a text field while typing is paused; the pause ends on the clock.
             ctx.input_mut(|i| {
                 i.events.clear();
@@ -1635,7 +1662,13 @@ impl WordApp {
         crate::keytips::show(self, &ctx, ui);
         keys::global_shortcuts(self, &ctx);
         input_guard::show(self, &ctx);
-        classroom::show(self, &ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        let builtin_browser_open = self.file_browser.open.is_some();
+        #[cfg(target_arch = "wasm32")]
+        let builtin_browser_open = false;
+        if !builtin_browser_open {
+            classroom::show(self, &ctx);
+        }
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
@@ -3274,7 +3307,7 @@ mod tests {
     }
 
     #[test]
-    fn the_start_screen_offers_class_access_when_available() {
+    fn the_start_screen_opens_class_access_when_available() {
         let mut a = app();
         a.classroom.available = true;
         a.start_screen();
@@ -3289,9 +3322,53 @@ mod tests {
         for _ in 0..6 {
             h.step();
         }
-        h.get_by_label("Get access to the class").click();
-        h.step();
-        assert!(h.state().classroom.join_open);
+        assert!(h.state().classroom.join_open, "access is requested at launch");
+        assert!(h.state().classroom.blocks_editing());
+        assert!(h.query_by_label("Get access to the class").is_none(), "there is no way to skip access");
+    }
+
+    #[test]
+    fn classroom_access_is_restored_at_launch_and_blocks_the_editor() {
+        let mut first = app();
+        first.classroom.available = true;
+        first.classroom.address = "127.0.0.1".into();
+        first.classroom.port = "8770".into();
+        first.classroom.full_name = "Иван".into();
+        let prefs = first.prefs();
+
+        let mut restored = app();
+        restored.apply_prefs(prefs);
+        restored.classroom.available = true;
+        restored.logic(&egui::Context::default());
+        assert_eq!(restored.classroom.phase, classroom::Phase::Connecting);
+        assert!(restored.take_classroom_events().iter().any(|event| matches!(event, classroom::Event::Connect { .. })));
+        assert!(restored.classroom.blocks_editing());
+    }
+
+    #[test]
+    fn a_denied_or_disconnected_student_can_only_save_or_wait() {
+        for phase in [classroom::Phase::Denied, classroom::Phase::Disconnected] {
+            let mut a = app();
+            a.classroom.available = true;
+            a.classroom.auto_start();
+            a.classroom.join_open = false;
+            a.classroom.phase = phase;
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..6 {
+                h.step();
+            }
+            assert!(h.state().classroom.blocks_editing());
+            assert!(h.query_by_label("Save file").is_some(), "{phase:?}: can save");
+            assert!(h.query_by_label("Leave").is_none(), "{phase:?}: cannot leave");
+            assert!(h.query_by_label("Reconnect").is_none(), "{phase:?}: waits automatically");
+        }
     }
 
     #[test]

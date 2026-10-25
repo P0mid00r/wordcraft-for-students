@@ -42,6 +42,8 @@ pub struct Classroom {
     pub notice: String,
     url: String,
     hello: Option<Hello>,
+    started: bool,
+    retry_at: Option<f64>,
     captcha_focus: bool,
     join_focus: bool,
     outbox: Vec<Event>,
@@ -68,6 +70,8 @@ impl Default for Classroom {
             notice: String::new(),
             url: String::new(),
             hello: None,
+            started: false,
+            retry_at: None,
             captcha_focus: false,
             join_focus: false,
             outbox: Vec::new(),
@@ -87,13 +91,34 @@ impl Classroom {
         self.join_open = true;
         self.join_error.clear();
         self.join_focus = true;
+        self.started = true;
     }
 
-    pub fn submit_join(&mut self) {
+    pub fn auto_start(&mut self) {
+        if !self.available || self.started {
+            return;
+        }
+        self.started = true;
+        if self.credentials_ready() && self.submit_join() {
+            return;
+        }
+        self.join_open = true;
+        self.join_focus = true;
+    }
+
+    fn credentials_ready(&self) -> bool {
+        !self.full_name.trim().is_empty() && (cfg!(target_arch = "wasm32") || (!self.address.trim().is_empty() && !self.port.trim().is_empty()))
+    }
+
+    pub fn retry_due(&self, now: f64) -> bool {
+        self.retry_at.is_some_and(|at| now >= at)
+    }
+
+    pub fn submit_join(&mut self) -> bool {
         let name = self.full_name.trim();
         if name.is_empty() {
             self.join_error = crate::tl!("Enter your full name.").into();
-            return;
+            return false;
         }
         let url = if cfg!(target_arch = "wasm32") {
             String::new()
@@ -101,12 +126,12 @@ impl Classroom {
             let address = self.address.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/');
             if address.is_empty() {
                 self.join_error = crate::tl!("Enter the teacher's address.").into();
-                return;
+                return false;
             }
             let port = match self.port.trim().parse::<u16>() {
                 Ok(0) | Err(_) => {
                     self.join_error = crate::tl!("Enter a port from 1 to 65535.").into();
-                    return;
+                    return false;
                 }
                 Ok(port) => port,
             };
@@ -124,7 +149,9 @@ impl Classroom {
         self.phase = Phase::Connecting;
         self.join_open = false;
         self.notice.clear();
+        self.retry_at = None;
         self.outbox.push(Event::Connect { url, hello });
+        true
     }
 
     pub fn leave(&mut self) {
@@ -133,6 +160,8 @@ impl Classroom {
         self.captcha = None;
         self.notice.clear();
         self.join_error.clear();
+        self.started = false;
+        self.retry_at = None;
         self.outbox.push(Event::Leave);
     }
 
@@ -144,6 +173,7 @@ impl Classroom {
         self.phase = Phase::Connecting;
         self.captcha = None;
         self.notice.clear();
+        self.retry_at = None;
         self.outbox.push(Event::Connect { url: self.url.clone(), hello });
     }
 
@@ -152,6 +182,9 @@ impl Classroom {
     }
 
     pub fn connected(&mut self, reply: HelloReply) {
+        self.started = true;
+        self.retry_at = None;
+        self.notice.clear();
         self.session = Some(reply.session);
         self.cursor = reply.cursor;
         self.apply_status(reply.status);
@@ -161,6 +194,8 @@ impl Classroom {
     }
 
     pub fn incoming(&mut self, reply: PollReply) {
+        self.started = true;
+        self.retry_at = None;
         self.cursor = reply.cursor;
         self.apply_status(reply.status);
         for message in reply.messages {
@@ -173,6 +208,7 @@ impl Classroom {
         self.phase = Phase::Disconnected;
         self.notice = crate::tl!("Could not connect to the teacher's server.").into();
         self.captcha = None;
+        self.retry_at = Some(crate::now_ms() + 3000.0);
     }
 
     fn apply_status(&mut self, status: SessionStatus) {
@@ -181,6 +217,7 @@ impl Classroom {
             SessionStatus::Active => {
                 self.phase = Phase::Active;
                 self.captcha = None;
+                self.notice.clear();
             }
             SessionStatus::Denied => {
                 self.phase = Phase::Denied;
@@ -198,6 +235,7 @@ impl Classroom {
             ServerMessage::Approved => {
                 self.phase = Phase::Active;
                 self.captcha = None;
+                self.notice.clear();
             }
             ServerMessage::Denied { reason } => {
                 self.phase = Phase::Denied;
@@ -231,6 +269,7 @@ impl Classroom {
                 self.phase = Phase::Disconnected;
                 self.notice = crate::tl!("The teacher's server stopped.").into();
                 self.captcha = None;
+                self.retry_at = Some(crate::now_ms() + 3000.0);
             }
         }
     }
@@ -257,7 +296,7 @@ impl Classroom {
     }
 
     pub fn blocks_editing(&self) -> bool {
-        matches!(self.phase, Phase::Connecting | Phase::Pending | Phase::Denied | Phase::Disconnected) || self.captcha.is_some()
+        self.join_open || matches!(self.phase, Phase::Connecting | Phase::Pending | Phase::Denied | Phase::Disconnected) || self.captcha.is_some()
     }
 
     pub fn status(&self) -> Option<&'static str> {
@@ -272,21 +311,17 @@ impl Classroom {
     }
 }
 
-pub fn access_button(app: &mut WordApp, ui: &mut egui::Ui) {
+pub fn access_status(app: &WordApp, ui: &mut egui::Ui) {
     if !app.classroom.available {
         return;
     }
     if let Some(status) = app.classroom.status() {
         ui.label(RichText::new(status).color(crate::theme::Tokens::get(ui.ctx()).text_dim));
     }
-    if app.classroom.phase == Phase::Off && ui.button(crate::tl!("Get access to the class")).clicked() {
-        let _ = app.run("ui.classroomAccess", serde_json::json!({}));
-    }
 }
 
 pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     if app.classroom.join_open {
-        let mut close = false;
         let mut connect = false;
         let _ = egui::Modal::new(Id::new("wordcraft.classroomJoin")).show(ctx, |ui| {
             ui.set_max_width(420.0);
@@ -315,61 +350,36 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
                 ui.colored_label(ui.visuals().error_fg_color, &app.classroom.join_error);
             }
             ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                if ui.button(crate::tl!("Connect")).clicked() {
-                    connect = true;
-                }
-                if ui.button(crate::tl!("Cancel")).clicked() {
-                    close = true;
-                }
-            });
+            if ui.button(crate::tl!("Connect")).clicked() {
+                connect = true;
+            }
         });
         if connect {
-            app.classroom.submit_join();
-        } else if close {
-            app.classroom.join_open = false;
+            let _ = app.classroom.submit_join();
         }
         return;
     }
 
     match app.classroom.phase {
         Phase::Connecting => {
-            let mut leave = false;
             let _ = egui::Modal::new(Id::new("wordcraft.classroomConnecting")).show(ctx, |ui| {
                 ui.set_max_width(380.0);
                 ui.heading(crate::tl!("Connecting…"));
                 ui.add_space(8.0);
                 ui.spinner();
-                ui.add_space(8.0);
-                if ui.button(crate::tl!("Cancel")).clicked() {
-                    leave = true;
-                }
             });
-            if leave {
-                app.classroom.leave();
-                app.input_guard.release();
-            }
         }
         Phase::Pending => {
-            let mut leave = false;
             let _ = egui::Modal::new(Id::new("wordcraft.classroomPending")).show(ctx, |ui| {
                 ui.set_max_width(420.0);
                 ui.heading(crate::tl!("Waiting for the teacher's approval"));
                 ui.add_space(8.0);
                 ui.label(crate::tl!("The teacher must allow this computer before you can edit."));
                 ui.add_space(10.0);
-                if ui.button(crate::tl!("Leave")).clicked() {
-                    leave = true;
-                }
+                save_button(app, ui);
             });
-            if leave {
-                app.classroom.leave();
-                app.input_guard.release();
-            }
         }
         Phase::Denied => {
-            let mut retry = false;
-            let mut close = false;
             let _ = egui::Modal::new(Id::new("wordcraft.classroomDenied")).show(ctx, |ui| {
                 ui.set_max_width(420.0);
                 ui.heading(crate::tl!("Access denied"));
@@ -379,26 +389,14 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
                 } else {
                     ui.label(&app.classroom.notice);
                 }
+                ui.add_space(6.0);
+                ui.label(crate::tl!("Waiting for the teacher to allow access again."));
                 ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    if ui.button(crate::tl!("Reconnect")).clicked() {
-                        retry = true;
-                    }
-                    if ui.button(crate::tl!("Close")).clicked() {
-                        close = true;
-                    }
-                });
+                save_button(app, ui);
             });
-            if retry {
-                app.classroom.open_join();
-            } else if close {
-                app.classroom.leave();
-                app.input_guard.release();
-            }
         }
         Phase::Disconnected => {
-            let mut retry = false;
-            let mut close = false;
+            let mut change = false;
             let _ = egui::Modal::new(Id::new("wordcraft.classroomDisconnected")).show(ctx, |ui| {
                 ui.set_max_width(420.0);
                 ui.heading(crate::tl!("Connection lost"));
@@ -408,21 +406,18 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
                 } else {
                     ui.label(&app.classroom.notice);
                 }
+                ui.add_space(6.0);
+                ui.label(crate::tl!("The connection will be restored automatically."));
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui.button(crate::tl!("Reconnect")).clicked() {
-                        retry = true;
-                    }
-                    if ui.button(crate::tl!("Close")).clicked() {
-                        close = true;
+                    save_button(app, ui);
+                    if !cfg!(target_arch = "wasm32") && ui.button(crate::tl!("Change address")).clicked() {
+                        change = true;
                     }
                 });
             });
-            if retry {
-                app.classroom.reconnect();
-            } else if close {
-                app.classroom.leave();
-                app.input_guard.release();
+            if change {
+                app.classroom.open_join();
             }
         }
         Phase::Off | Phase::Active => {
@@ -430,6 +425,12 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
                 show_captcha(app, ctx, &captcha);
             }
         }
+    }
+}
+
+fn save_button(app: &mut WordApp, ui: &mut egui::Ui) {
+    if ui.button(crate::tl!("Save file")).clicked() {
+        let _ = app.run("file.save", serde_json::json!({}));
     }
 }
 

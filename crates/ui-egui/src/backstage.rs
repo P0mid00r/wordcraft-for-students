@@ -201,7 +201,7 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
     );
     if app.classroom.available {
         ui.add_space(6.0);
-        crate::classroom::access_button(app, ui);
+        crate::classroom::access_status(app, ui);
         ui.add_space(10.0);
     }
     ui.horizontal(|ui| {

@@ -1,6 +1,6 @@
 # Control protocol
 
-Start the app with a control port: `wordcraft --control 7981` (or `WORDCRAFT_CONTROL_PORT=7981`).
+Start the app with a control port: `WORDCRAFT_NO_CLASSROOM=1 wordcraft --control 7981` (or `WORDCRAFT_CONTROL_PORT=7981`; the classroom gate is for student builds, agents set `WORDCRAFT_NO_CLASSROOM=1`).
 It listens on `127.0.0.1` only. Send one JSON object per line, with the window's key (see
 [Keys](#keys)); each gets one reply line:
 

@@ -44,6 +44,7 @@ pub(crate) struct Session {
     pub(crate) address: String,
     pub(crate) status: SessionStatus,
     pub(crate) messages: Vec<ServerMessage>,
+    pub(crate) offline: bool,
     pub(crate) last_seen: Instant,
     pub(crate) connected_at: Instant,
     pub(crate) captcha: Option<CaptchaState>,
@@ -91,71 +92,104 @@ impl Classroom {
     fn prune(&mut self) {
         self.sessions.retain(|_, session| {
             session.last_seen.elapsed() < Duration::from_secs(3600)
-                && !(session.status == SessionStatus::Offline && session.last_seen.elapsed() > Duration::from_secs(120))
+                && !(session.offline
+                    && session.captcha.is_none()
+                    && session.paused_until.is_none()
+                    && session.last_seen.elapsed() > Duration::from_secs(120))
         });
     }
 
     fn join(&mut self, hello: Hello, address: SocketAddr) -> HelloReply {
-        let previous_label = self.sessions.values().find(|session| session.client_id == hello.client_id).map(|session| session.label.clone());
-        let carry = self
-            .sessions
-            .values()
-            .find(|session| session.client_id == hello.client_id && (session.status == SessionStatus::Paused || session.captcha.is_some()))
-            .map(|session| (session.id.clone(), session.captcha.clone(), session.paused_until));
-        if let Some((old, ..)) = &carry {
-            self.sessions.remove(old);
+        let now = Instant::now();
+        let client_id = truncate(hello.client_id.trim(), 160);
+        let approved = self.approved.contains(&client_id);
+        let full_name = truncate(hello.full_name.trim(), 120);
+        let hostname = hello.hostname.as_deref().map(|name| truncate(name.trim(), 120)).filter(|name| !name.is_empty());
+        let platform = truncate(hello.platform.trim(), 80);
+        let address = address.ip().to_string();
+
+        let ids: Vec<String> = self.sessions.iter().filter(|(_, session)| session.client_id == client_id).map(|(id, _)| id.clone()).collect();
+        if let Some(chosen) = ids
+            .iter()
+            .max_by_key(|id| {
+                self.sessions
+                    .get(*id)
+                    .map(|session| (session.captcha.is_some(), session.paused_until.is_some_and(|until| until > now), session.last_seen))
+                    .unwrap_or((false, false, now))
+            })
+            .cloned()
+        {
+            for id in &ids {
+                if id != &chosen {
+                    self.sessions.remove(id);
+                }
+            }
+            if let Some(session) = self.sessions.get_mut(&chosen) {
+                session.last_seen = now;
+                session.offline = false;
+                let renamed = session.label != session.full_name;
+                session.full_name = full_name;
+                session.hostname = hostname;
+                session.platform = platform;
+                session.address = address;
+                if !renamed || session.label.is_empty() {
+                    session.label = session.full_name.clone();
+                }
+                if session.paused_until.is_some_and(|until| until <= now) {
+                    session.paused_until = None;
+                }
+                let status = if session.captcha.is_some() {
+                    SessionStatus::Captcha
+                } else if session.paused_until.is_some() {
+                    SessionStatus::Paused
+                } else if session.status == SessionStatus::Denied && !approved {
+                    SessionStatus::Denied
+                } else if approved {
+                    SessionStatus::Active
+                } else {
+                    SessionStatus::Pending
+                };
+                session.status = status;
+                let messages = match status {
+                    SessionStatus::Captcha => {
+                        session.captcha.as_ref().map(|captcha| vec![ServerMessage::Captcha { prompt: captcha.prompt.clone() }]).unwrap_or_default()
+                    }
+                    SessionStatus::Paused => vec![ServerMessage::Pause {
+                        seconds: session.paused_until.map(|until| until.saturating_duration_since(now).as_secs().max(1)).unwrap_or(1),
+                    }],
+                    _ => Vec::new(),
+                };
+                let cursor = session.messages.len() as u64;
+                return HelloReply { session: chosen, status, messages, cursor };
+            }
         }
-        self.sessions.retain(|_, session| {
-            session.last_seen.elapsed() < Duration::from_secs(3600)
-                && !(session.client_id == hello.client_id
-                    && (session.status == SessionStatus::Offline || session.last_seen.elapsed() > Duration::from_secs(30)))
-        });
+
         let mut id = random_hex::<8>();
         while self.sessions.contains_key(&id) {
             id = random_hex::<8>();
         }
-        let approved = self.approved.contains(&hello.client_id);
-        let mut status = if approved { SessionStatus::Active } else { SessionStatus::Pending };
+        let status = if approved { SessionStatus::Active } else { SessionStatus::Pending };
         let mut messages = Vec::new();
         messages.push(if approved { ServerMessage::Approved } else { ServerMessage::Pending });
-        let mut captcha = None;
-        let mut paused_until = None;
-        if let Some((_, carried_captcha, carried_pause)) = carry {
-            if let Some(carried_captcha) = carried_captcha {
-                status = SessionStatus::Captcha;
-                messages.push(ServerMessage::Captcha { prompt: carried_captcha.prompt.clone() });
-                captcha = Some(carried_captcha);
-            } else if let Some(until) = carried_pause {
-                let left = until.saturating_duration_since(Instant::now());
-                if !left.is_zero() {
-                    status = SessionStatus::Paused;
-                    messages.push(ServerMessage::Pause { seconds: left.as_secs().max(1) });
-                    paused_until = Some(until);
-                }
-            }
-        }
-        let full_name = truncate(hello.full_name.trim(), 120);
-        let label = previous_label.filter(|label| !label.is_empty()).unwrap_or_else(|| full_name.clone());
-        let hostname = hello.hostname.as_deref().map(|name| truncate(name.trim(), 120)).filter(|name| !name.is_empty());
-        let platform = truncate(hello.platform.trim(), 80);
         let session = Session {
             id: id.clone(),
-            client_id: truncate(hello.client_id.trim(), 160),
+            client_id,
             full_name: full_name.clone(),
-            label,
+            label: full_name.clone(),
             hostname,
             platform,
-            address: address.ip().to_string(),
+            address: address.clone(),
             status,
             messages,
-            last_seen: Instant::now(),
-            connected_at: Instant::now(),
-            captcha,
+            offline: false,
+            last_seen: now,
+            connected_at: now,
+            captcha: None,
             suspicion: None,
-            paused_until,
+            paused_until: None,
         };
         self.sessions.insert(id.clone(), session);
-        let where_ = format!("{} ({})", full_name, address.ip());
+        let where_ = format!("{} ({address})", full_name);
         if approved {
             self.event(format!("Подключён уже разрешённый компьютер: {where_}"));
         } else {
@@ -170,6 +204,7 @@ impl Classroom {
         let approved = self.sessions.get(session_id).is_some_and(|session| self.approved.contains(&session.client_id));
         let session = self.sessions.get_mut(session_id)?;
         session.last_seen = Instant::now();
+        session.offline = false;
         if session.status == SessionStatus::Offline {
             session.status = if approved { SessionStatus::Active } else { SessionStatus::Pending };
         }
@@ -201,6 +236,7 @@ impl Classroom {
 
     fn deny(&mut self, id: &str) {
         let Some(client_id) = self.session(id).map(|session| session.client_id.clone()) else { return };
+        self.approved.remove(&client_id);
         let mut label = None;
         for session in self.sessions.values_mut().filter(|session| session.client_id == client_id) {
             label = Some(session.label.clone());
@@ -389,7 +425,8 @@ impl Classroom {
     fn leave(&mut self, session_id: &str) {
         let Some(label) = self.session(session_id).map(|session| session.label.clone()) else { return };
         if let Some(session) = self.sessions.get_mut(session_id) {
-            session.status = SessionStatus::Offline;
+            session.offline = true;
+            session.last_seen = Instant::now();
         }
         self.event(format!("{label}: отключился"));
     }
@@ -443,6 +480,9 @@ async fn hello(
     }
     if hello.full_name.trim().is_empty() {
         return Err(api_error(StatusCode::BAD_REQUEST, crate::ru::NAME));
+    }
+    if hello.client_id.trim().is_empty() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "missing client id"));
     }
     let mut classroom = state.classroom.lock().map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, crate::ru::STATE))?;
     classroom.prune();
@@ -646,7 +686,48 @@ mod tests {
         classroom.revoke(&reply.session);
         assert!(!classroom.approved.contains("client"));
         let again = classroom.join(hello, SocketAddr::from(([10, 0, 0, 2], 5001)));
-        assert_eq!(again.status, SessionStatus::Pending);
+        assert_eq!(again.status, SessionStatus::Denied);
+        assert_eq!(again.session, reply.session);
+        classroom.approve(&again.session);
+        assert_eq!(classroom.session(&again.session).map(|session| session.status), Some(SessionStatus::Active));
+    }
+
+    #[test]
+    fn a_reload_reuses_the_same_session() {
+        let mut classroom = Classroom::default();
+        let hello = Hello {
+            protocol: wordcraft_classroom::PROTOCOL_VERSION,
+            client_id: "client".into(),
+            full_name: "Иван".into(),
+            hostname: None,
+            platform: "linux".into(),
+        };
+        let first = classroom.join(hello.clone(), SocketAddr::from(([10, 0, 0, 2], 5000)));
+        let second = classroom.join(hello, SocketAddr::from(([10, 0, 0, 2], 5001)));
+        assert_eq!(second.session, first.session);
+        assert_eq!(classroom.sessions.len(), 1);
+        assert_eq!(classroom.events.iter().filter(|event| event.text.starts_with("Запрос доступа")).count(), 1);
+    }
+
+    #[test]
+    fn denying_removes_approval_and_a_reload_stays_denied() {
+        let mut classroom = Classroom::default();
+        let hello = Hello {
+            protocol: wordcraft_classroom::PROTOCOL_VERSION,
+            client_id: "client".into(),
+            full_name: "Иван".into(),
+            hostname: None,
+            platform: "linux".into(),
+        };
+        let first = classroom.join(hello.clone(), SocketAddr::from(([10, 0, 0, 2], 5000)));
+        classroom.approve(&first.session);
+        classroom.deny(&first.session);
+        assert!(!classroom.approved.contains("client"));
+        let again = classroom.join(hello, SocketAddr::from(([10, 0, 0, 2], 5001)));
+        assert_eq!(again.status, SessionStatus::Denied);
+        assert_eq!(again.session, first.session);
+        classroom.approve(&again.session);
+        assert_eq!(classroom.session(&again.session).map(|session| session.status), Some(SessionStatus::Active));
     }
 
     #[test]
@@ -691,8 +772,28 @@ mod tests {
         let prompt = classroom.session(&first.session).and_then(|session| session.captcha.as_ref()).map(|captcha| captcha.prompt.clone()).unwrap();
         let second = classroom.join(hello, SocketAddr::from(([10, 0, 0, 2], 5001)));
         assert_eq!(second.status, SessionStatus::Captcha);
+        assert_eq!(second.session, first.session);
         assert!(second.messages.iter().any(|message| matches!(message, ServerMessage::Captcha { prompt: carried } if carried.id == prompt.id)));
-        assert!(!classroom.sessions.contains_key(&first.session));
+        assert_eq!(classroom.sessions.len(), 1);
+    }
+
+    #[test]
+    fn closing_and_reopening_keeps_a_captcha() {
+        let mut classroom = Classroom::default();
+        let hello = Hello {
+            protocol: wordcraft_classroom::PROTOCOL_VERSION,
+            client_id: "client".into(),
+            full_name: "Иван".into(),
+            hostname: None,
+            platform: "linux".into(),
+        };
+        let first = classroom.join(hello.clone(), SocketAddr::from(([10, 0, 0, 2], 5000)));
+        classroom.approve(&first.session);
+        classroom.request_captcha(&first.session);
+        classroom.leave(&first.session);
+        let again = classroom.join(hello, SocketAddr::from(([10, 0, 0, 2], 5001)));
+        assert_eq!(again.status, SessionStatus::Captcha);
+        assert_eq!(again.session, first.session);
     }
 
     #[test]

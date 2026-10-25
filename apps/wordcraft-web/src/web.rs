@@ -63,6 +63,7 @@ pub fn start() {
                     let classroom = crate::classroom::config().map(|api| {
                         app.classroom.available = true;
                         app.classroom.client_id = crate::classroom::client_id();
+                        app.classroom.full_name = crate::classroom::saved_name();
                         app.classroom.platform =
                             web_sys::window().and_then(|window| window.navigator().user_agent().ok()).unwrap_or_else(|| "web".into());
                         crate::classroom::Link::new(api)

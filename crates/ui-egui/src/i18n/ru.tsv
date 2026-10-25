@@ -2508,3 +2508,7 @@ preview	Title	Пример
 	Ask the teacher if you cannot read the code.	Если код не читается, попросите преподавателя снять проверку.
 	Your teacher paused text input for {seconds} seconds.	Преподаватель приостановил ввод текста на {seconds} секунд.
 	Could not connect to the teacher's server.	Не удалось подключиться к серверу преподавателя.
+	Waiting for the teacher to allow access again.	Ожидайте, пока преподаватель снова разрешит доступ.
+	The connection will be restored automatically.	Связь восстанавливается автоматически.
+	Change address	Изменить адрес
+	Save file	Сохранить файл

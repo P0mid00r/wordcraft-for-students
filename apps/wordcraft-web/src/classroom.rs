@@ -34,7 +34,10 @@ impl Link {
 
     pub fn send(&mut self, event: Event) {
         match event {
-            Event::Connect { hello, .. } => self.connect(hello),
+            Event::Connect { hello, .. } => {
+                save_name(&hello.full_name);
+                self.connect(hello);
+            }
             Event::Leave => {
                 self.generation.set(self.generation.get().wrapping_add(1));
                 if let Some(session) = self.session.borrow_mut().take() {
@@ -136,6 +139,19 @@ pub fn config() -> Option<String> {
     }
     let api = js_sys::Reflect::get(&value, &JsValue::from_str("api")).ok()?;
     api.as_string()
+}
+
+pub fn saved_name() -> String {
+    web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item("wordcraft.classroomName").ok().flatten())
+        .unwrap_or_default()
+}
+
+fn save_name(name: &str) {
+    if let Some(storage) = web_sys::window().and_then(|window| window.local_storage().ok().flatten()) {
+        let _ = storage.set_item("wordcraft.classroomName", name);
+    }
 }
 
 pub fn client_id() -> String {

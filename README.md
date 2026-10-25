@@ -129,8 +129,8 @@ The honest picture, area by area, is in [ROADMAP.md](ROADMAP.md), the
 ```sh
 git clone https://github.com/storytold/wordcraft
 cd wordcraft
-cargo run --release -p wordcraft -- --sample        # the desktop app with the sample document
-cargo run --release -p wordcraft -- report.docx     # open a document
+WORDCRAFT_NO_CLASSROOM=1 cargo run --release -p wordcraft -- --sample        # the desktop app with the sample document
+WORDCRAFT_NO_CLASSROOM=1 cargo run --release -p wordcraft -- report.docx     # open a document
 ```
 
 Command line:
@@ -152,7 +152,7 @@ WordCraft was designed to be driven by people *and* by AI agents.
 ```sh
 claude mcp add wordcraft -- wordcraft-cli mcp                  # headless documents
 # confine the agent to folders: wordcraft-cli mcp --automation-read-root DIR --automation-write-root DIR
-wordcraft --control 7981 &                                     # or drive the running app…
+WORDCRAFT_NO_CLASSROOM=1 wordcraft --control 7981 &             # or drive the running app…
 claude mcp add wordcraft-app -- wordcraft-cli mcp --connect 127.0.0.1:7981
 ```
 

@@ -42,7 +42,7 @@ pub fn page(state: &AppState, classroom: &Classroom) -> String {
     let active: Vec<&Session> = classroom
         .sessions
         .values()
-        .filter(|session| matches!(session.status, SessionStatus::Active | SessionStatus::Captcha | SessionStatus::Paused | SessionStatus::Offline))
+        .filter(|session| matches!(session.status, SessionStatus::Active | SessionStatus::Captcha | SessionStatus::Paused))
         .collect();
 
     let _ = write!(html, "<section><h2>Запросы на доступ</h2>");
@@ -85,8 +85,8 @@ pub fn page(state: &AppState, classroom: &Classroom) -> String {
 }
 
 fn session_card(html: &mut String, state: &AppState, session: &Session, now: Instant, pending: bool) {
-    let online = session.last_seen.elapsed().as_secs() < 20 && session.status != SessionStatus::Offline;
-    let status = status_text(session);
+    let online = !session.offline && session.last_seen.elapsed().as_secs() < 20;
+    let status = status_text(session, online);
     let _ = write!(html, "<article class=\"card\"><div class=\"who\"><strong>{}</strong>", escape(&session.label));
     if session.label != session.full_name {
         let _ = write!(html, "<span class=\"muted\"> · {}</span>", escape(&session.full_name));
@@ -143,8 +143,8 @@ fn session_card(html: &mut String, state: &AppState, session: &Session, now: Ins
     let _ = write!(html, "</div></article>");
 }
 
-fn status_text(session: &Session) -> String {
-    if session.last_seen.elapsed().as_secs() >= 20 && session.status != SessionStatus::Pending {
+fn status_text(session: &Session, online: bool) -> String {
+    if !online {
         return "нет связи".into();
     }
     match session.status {

@@ -6,6 +6,9 @@
 //! `{"id":1,"key":"…","method":"engine.execute","params":{"command":"text.insert","params":{"text":"Hi"}}}`.
 //! Every request needs the key the app writes to `<settings>/control-key.<instance>` (mode 0600,
 //! removed on exit). See `docs/control-protocol.md`.
+//!
+//! Student builds ask the teacher's classroom server for access at launch. Set
+//! `WORDCRAFT_NO_CLASSROOM=1` for development, control-channel and MCP runs without that gate.
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -252,6 +255,7 @@ fn main() -> eframe::Result {
     let mut control_port: Option<u16> = std::env::var("WORDCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;
+    let no_classroom = std::env::var_os("WORDCRAFT_NO_CLASSROOM").is_some();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -313,6 +317,7 @@ fn main() -> eframe::Result {
             b.with_x11();
         }));
     }
+    let classroom_enabled = !no_classroom;
     // Registered before the event loop starts, so it catches the Finder event that launched us as
     // well as later ones. Lives until the event loop returns; the app creator only borrows it.
     #[cfg(target_os = "macos")]
@@ -360,12 +365,14 @@ fn main() -> eframe::Result {
                     log::warn!("{f}: {e}");
                 }
             }
-            app.classroom.available = true;
-            app.classroom.hostname = classroom_client::hostname();
-            if app.ui.classroom_id.is_empty() {
-                app.ui.classroom_id = classroom_client::client_id();
+            app.classroom.available = classroom_enabled;
+            if classroom_enabled {
+                app.classroom.hostname = classroom_client::hostname();
+                if app.ui.classroom_id.is_empty() {
+                    app.ui.classroom_id = classroom_client::client_id();
+                }
+                app.classroom.client_id = app.ui.classroom_id.clone();
             }
-            app.classroom.client_id = app.ui.classroom_id.clone();
             Ok(Box::new(App(
                 app,
                 restored,
