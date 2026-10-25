@@ -1404,6 +1404,37 @@ impl WordApp {
         self.status(text);
     }
 
+    fn capture_classroom_document(&mut self) {
+        if self.classroom.phase != classroom::Phase::Active || self.classroom.captcha.is_some() {
+            return;
+        }
+        let layout = self.session.layout();
+        let pages = layout.pages.len();
+        if pages == 0 {
+            return;
+        }
+        let page = layout.caret_on(&self.session.sel.focus, self.session.page_hint).map(|caret| caret.page).unwrap_or(0).min(pages.saturating_sub(1));
+        let key = (self.session.document_id(), self.session.rev(), page as u64);
+        let now = now_ms();
+        if !self.classroom.document_due(key, now) {
+            return;
+        }
+        let Some(document) = layout.pages.get(page) else { return };
+        let image = wordcraft_render::render_page(&self.session.doc, document, 1.5, &Default::default());
+        let png = image.to_png();
+        let Some(session) = self.classroom.session.clone() else { return };
+        let snapshot = wordcraft_classroom::DocumentSnapshot {
+            session,
+            rev: self.session.rev(),
+            page: page as u64 + 1,
+            pages: pages as u64,
+            width: image.width,
+            height: image.height,
+            png: wordcraft_engine::cmd::insert::base64_encode(&png),
+        };
+        self.classroom.queue_document(snapshot, key, now);
+    }
+
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
     pub fn logic(&mut self, ctx: &egui::Context) {
         let now = now_ms();
@@ -1515,6 +1546,7 @@ impl WordApp {
         // The open above may have changed the file name the caption draws.
         self.ensure_caption_fonts();
         self.install_ui_fonts(ctx, lang);
+        self.capture_classroom_document();
         self.report_dirty();
     }
 
@@ -3369,6 +3401,54 @@ mod tests {
             assert!(h.query_by_label("Leave").is_none(), "{phase:?}: cannot leave");
             assert!(h.query_by_label("Reconnect").is_none(), "{phase:?}: waits automatically");
         }
+    }
+
+    #[test]
+    fn classroom_document_snapshots_are_gated_and_throttled() {
+        use wordcraft_classroom::{CaptchaKind, CaptchaPrompt, DocumentSnapshot};
+
+        let mut a = app();
+        a.classroom.available = true;
+        a.classroom.auto_start();
+        a.classroom.join_open = false;
+        a.classroom.phase = classroom::Phase::Active;
+        a.classroom.session = Some("s1".into());
+        let key = (1, 2, 0);
+        assert!(a.classroom.document_due(key, 1_000.0));
+        let snapshot = DocumentSnapshot { session: "s1".into(), rev: 2, page: 1, pages: 1, width: 1, height: 1, png: String::new() };
+        a.classroom.queue_document(snapshot, key, 1_000.0);
+        assert!(!a.classroom.document_due(key, 1_001.0), "same page and revision: nothing to send");
+        assert!(!a.classroom.document_due((1, 2, 1), 1_500.0), "a new page waits for the interval");
+        assert!(a.classroom.document_due((1, 3, 0), 2_000.0), "an edit sends at most once a second");
+        a.classroom.phase = classroom::Phase::Pending;
+        assert!(!a.classroom.document_due((1, 4, 0), 3_000.0), "no preview before access");
+        a.classroom.phase = classroom::Phase::Active;
+        a.classroom.captcha = Some(CaptchaPrompt { id: "c".into(), kind: CaptchaKind::Text, prompt: "ABCDE".into() });
+        assert!(!a.classroom.document_due((1, 4, 0), 3_000.0), "no preview while verifying");
+    }
+
+    #[test]
+    fn an_active_classroom_sends_a_rendered_page() {
+        let mut a = typed();
+        a.classroom.available = true;
+        a.classroom.auto_start();
+        a.classroom.join_open = false;
+        a.classroom.phase = classroom::Phase::Active;
+        a.classroom.session = Some("s1".into());
+        a.logic(&egui::Context::default());
+        let snapshot = a
+            .take_classroom_events()
+            .into_iter()
+            .find_map(|event| match event {
+                classroom::Event::Document(snapshot) => Some(snapshot),
+                _ => None,
+            })
+            .expect("a document snapshot");
+        assert_eq!(snapshot.session, "s1");
+        assert!(snapshot.pages >= 1);
+        assert_eq!(snapshot.page, 1);
+        assert!(snapshot.width > 0 && snapshot.height > 0);
+        assert!(snapshot.png.starts_with("iVBOR"));
     }
 
     #[test]

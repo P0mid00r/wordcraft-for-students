@@ -117,7 +117,24 @@ fn session_card(html: &mut String, state: &AppState, session: &Session, now: Ins
         let left = until.saturating_duration_since(now).as_secs().saturating_add(1);
         let _ = write!(html, "<div class=\"captcha\">Ввод приостановлен, ещё {left} с</div>");
     }
+    if let Some(document) = &session.document {
+        let _ = write!(
+            html,
+            "<div class=\"meta\">Документ: страница {} из {} · обновлён {}</div>",
+            document.page,
+            document.pages,
+            ago(document.updated, now)
+        );
+    }
     let _ = write!(html, "<div class=\"actions\">");
+    if session.document.is_some() || matches!(session.status, SessionStatus::Active | SessionStatus::Captcha | SessionStatus::Paused) {
+        let _ = write!(
+            html,
+            "<a class=\"button\" target=\"_blank\" rel=\"noopener\" href=\"/document?token={}&session={}\">Документ</a>",
+            escape(&state.token),
+            escape(&session.id)
+        );
+    }
     if session.status == SessionStatus::Pending {
         action(html, state, session, "approve", "Разрешить");
         action(html, state, session, "deny", "Отклонить");
@@ -168,6 +185,29 @@ fn action(html: &mut String, state: &AppState, session: &Session, op: &str, labe
     );
 }
 
+pub fn document_page(state: &AppState, session: &Session) -> String {
+    let mut html = String::new();
+    head(&mut html, false, &state.token);
+    let _ = write!(
+        html,
+        "<body class=\"viewer\"><main><header><a href=\"/?token={}\">← Назад</a><h1>{}</h1>",
+        escape(&state.token),
+        escape(&session.label)
+    );
+    if session.label != session.full_name {
+        let _ = write!(html, "<p class=\"sub\">{}</p>", escape(&session.full_name));
+    }
+    let _ = write!(
+        html,
+        "<p class=\"sub\">Текущая страница · изображение обновляется автоматически</p></header><div class=\"page\"><img src=\"/document.mjpeg?token={}&session={}\" alt=\"Документ ученика\"></div><p class=\"hint\"><a href=\"/document.png?token={}&session={}\">Открыть снимок</a></p></main></body></html>",
+        escape(&state.token),
+        escape(&session.id),
+        escape(&state.token),
+        escape(&session.id)
+    );
+    html
+}
+
 pub fn rename_page(state: &AppState, session: &Session) -> String {
     let mut html = String::new();
     head(&mut html, false, &state.token);
@@ -188,12 +228,16 @@ pub fn rename_page(state: &AppState, session: &Session) -> String {
 }
 
 fn head(html: &mut String, refresh: bool, token: &str) {
+    head_every(html, refresh.then_some(2), token);
+}
+
+fn head_every(html: &mut String, refresh: Option<u32>, token: &str) {
     let _ = write!(
         html,
         "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>WordCraft Teacher</title>"
     );
-    if refresh {
-        let _ = write!(html, "<meta http-equiv=\"refresh\" content=\"2\">");
+    if let Some(seconds) = refresh {
+        let _ = write!(html, "<meta http-equiv=\"refresh\" content=\"{seconds}\">");
     }
     let _ = write!(html, "<style>{}</style></head>", CSS.replace("__TOKEN__", token));
 }
@@ -229,5 +273,5 @@ fn escape(text: &str) -> String {
 const CSS: &str = r#"
 :root{color-scheme:light dark;--bg:#f3f5f7;--card:#fff;--text:#1d232b;--muted:#68717d;--line:#d8dee5;--accent:#4b63d8;--ok:#167a4a;--bad:#b3261e;--warn:#925a00}
 @media (prefers-color-scheme:dark){:root{--bg:#15181d;--card:#1e232a;--text:#e8edf3;--muted:#9aa5b1;--line:#333b45;--accent:#8ca0ff;--ok:#64d39a;--bad:#ff8b84;--warn:#f0bc63}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}main{max-width:980px;margin:0 auto;padding:28px 20px 48px}h1{font-size:26px;margin:0}h2{font-size:18px;margin:26px 0 10px}.sub,.hint,.empty,.muted{color:var(--muted)}.sub{margin:4px 0 0}.hint{font-size:13px}.urls{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}code{padding:4px 7px;border-radius:6px;background:var(--card);border:1px solid var(--line);font:14px ui-monospace,SFMono-Regular,Menlo,monospace}section{margin-top:18px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:10px 0}.who{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.status{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}.status.on{color:var(--ok);border-color:currentColor}.status.off{color:var(--muted)}.meta{font-size:12.5px;color:var(--muted);margin-top:4px;word-break:break-word}.suspect,.bad{margin-top:9px;padding:8px 10px;border-radius:8px;border:1px solid currentColor;color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent)}.captcha{margin-top:9px;color:var(--warn)}.notice{margin:16px 0;padding:11px 14px;border-radius:9px;border:1px solid var(--ok);color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,transparent)}.actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;align-items:center}button,.button{appearance:none;font:inherit;font-size:13.5px;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);text-decoration:none;cursor:pointer}button:hover,.button:hover{border-color:var(--accent)}form{display:inline}.events{display:grid;gap:4px}.event{display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}.event span{color:var(--muted);min-width:96px}label{display:grid;gap:6px;margin:14px 0;font-size:13.5px}input[name=label]{font:inherit;padding:9px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);max-width:420px}footer{margin-top:26px;font-size:13px}footer a{color:var(--accent)}a.button{display:inline-block}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}main{max-width:980px;margin:0 auto;padding:28px 20px 48px}h1{font-size:26px;margin:0}h2{font-size:18px;margin:26px 0 10px}.sub,.hint,.empty,.muted{color:var(--muted)}.sub{margin:4px 0 0}.hint{font-size:13px}.urls{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}code{padding:4px 7px;border-radius:6px;background:var(--card);border:1px solid var(--line);font:14px ui-monospace,SFMono-Regular,Menlo,monospace}section{margin-top:18px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:10px 0}.who{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.status{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}.status.on{color:var(--ok);border-color:currentColor}.status.off{color:var(--muted)}.meta{font-size:12.5px;color:var(--muted);margin-top:4px;word-break:break-word}.suspect,.bad{margin-top:9px;padding:8px 10px;border-radius:8px;border:1px solid currentColor;color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent)}.captcha{margin-top:9px;color:var(--warn)}.notice{margin:16px 0;padding:11px 14px;border-radius:9px;border:1px solid var(--ok);color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,transparent)}.actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;align-items:center}button,.button{appearance:none;font:inherit;font-size:13.5px;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);text-decoration:none;cursor:pointer}button:hover,.button:hover{border-color:var(--accent)}form{display:inline}.events{display:grid;gap:4px}.event{display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}.event span{color:var(--muted);min-width:96px}label{display:grid;gap:6px;margin:14px 0;font-size:13.5px}input[name=label]{font:inherit;padding:9px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);max-width:420px}footer{margin-top:26px;font-size:13px}footer a{color:var(--accent)}a.button{display:inline-block}.viewer main{max-width:1100px}.viewer header h1{display:inline;margin-left:14px;font-size:20px}.viewer header .sub{display:block;margin:6px 0 0}.viewer header a{color:var(--accent)}.page{margin-top:18px;display:flex;justify-content:center}.page img{max-width:100%;height:auto;border-radius:4px;box-shadow:0 10px 40px rgba(0,0,0,.35);background:#fff}
 "#;

@@ -67,6 +67,14 @@ impl Link {
                     }
                 });
             }
+            Event::Document(snapshot) => {
+                let api = self.api.clone();
+                spawn_local(async move {
+                    if let Err(error) = post::<_, Ack>(&format!("{api}/document"), &snapshot).await {
+                        log::warn!("classroom document failed: {error}");
+                    }
+                });
+            }
         }
     }
 

@@ -1,22 +1,29 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::{ConnectInfo, Form, Query, State};
-use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse, Redirect};
+use axum::body::{Body, Bytes};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Form, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine as _;
 use serde::Deserialize;
+use tokio_stream::wrappers::ReceiverStream;
 use tower_http::services::ServeDir;
 use wordcraft_classroom::{
-    Ack, CaptchaAnswer, CaptchaKind, CaptchaPrompt, DEFAULT_ADMIN_PORT, Hello, HelloReply, PollReply, ServerMessage, SessionStatus, SuspicionReport,
+    Ack, CaptchaAnswer, CaptchaKind, CaptchaPrompt, DEFAULT_ADMIN_PORT, DocumentSnapshot, Hello, HelloReply, PollReply, ServerMessage, SessionStatus,
+    SuspicionReport,
 };
 
 pub const PAUSE_SECONDS: u64 = 60;
 const MAX_SESSIONS: usize = 256;
+const MAX_DOCUMENT_BASE64: usize = 12 << 20;
+const MAX_DOCUMENT_PNG: usize = 8 << 20;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -50,6 +57,15 @@ pub(crate) struct Session {
     pub(crate) captcha: Option<CaptchaState>,
     pub(crate) suspicion: Option<String>,
     pub(crate) paused_until: Option<Instant>,
+    pub(crate) document: Option<DocumentView>,
+}
+
+pub(crate) struct DocumentView {
+    pub(crate) png: Vec<u8>,
+    pub(crate) page: u64,
+    pub(crate) pages: u64,
+    pub(crate) updated: Instant,
+    pub(crate) version: u64,
 }
 
 #[derive(Clone)]
@@ -187,6 +203,7 @@ impl Classroom {
             captcha: None,
             suspicion: None,
             paused_until: None,
+            document: None,
         };
         self.sessions.insert(id.clone(), session);
         let where_ = format!("{} ({address})", full_name);
@@ -441,6 +458,8 @@ pub fn student_router(state: AppState) -> Router {
         .route("/classroom/answer", post(answer))
         .route("/classroom/suspicion", post(suspicion))
         .route("/classroom/leave", post(leave))
+        .route("/classroom/document", post(document))
+        .layer(DefaultBodyLimit::max(16 << 20))
         .with_state(state.clone());
     match &state.web_dir {
         Some(dir) => router.fallback_service(ServeDir::new(dir)),
@@ -449,7 +468,14 @@ pub fn student_router(state: AppState) -> Router {
 }
 
 pub fn admin_router(state: AppState) -> Router {
-    Router::new().route("/", get(dashboard)).route("/rename", get(rename_page)).route("/action", post(action)).with_state(state)
+    Router::new()
+        .route("/", get(dashboard))
+        .route("/rename", get(rename_page))
+        .route("/document", get(document_page))
+        .route("/document.png", get(document_png))
+        .route("/document.mjpeg", get(document_stream))
+        .route("/action", post(action))
+        .with_state(state)
 }
 
 async fn index(State(state): State<AppState>) -> impl IntoResponse {
@@ -536,6 +562,45 @@ async fn leave(State(state): State<AppState>, Query(query): Query<SessionQuery>)
     }
 }
 
+async fn document(State(state): State<AppState>, Json(snapshot): Json<DocumentSnapshot>) -> Json<Ack> {
+    if snapshot.png.len() > MAX_DOCUMENT_BASE64 {
+        return Json(Ack { ok: false, message: "document too large".into() });
+    }
+    let png = match base64::engine::general_purpose::STANDARD.decode(snapshot.png.as_bytes()) {
+        Ok(png) if png.len() <= MAX_DOCUMENT_PNG && valid_document_png(&png) => png,
+        _ => return Json(Ack { ok: false, message: "invalid document image".into() }),
+    };
+    match state.classroom.lock() {
+        Ok(mut classroom) => {
+            let Some(session) = classroom.sessions.get_mut(&snapshot.session) else {
+                return Json(Ack { ok: false, message: crate::ru::SESSION.into() });
+            };
+            if !matches!(session.status, SessionStatus::Active | SessionStatus::Captcha | SessionStatus::Paused) {
+                return Json(Ack { ok: false, message: "classroom is not active".into() });
+            }
+            let version = session.document.as_ref().map_or(1, |document| document.version.wrapping_add(1));
+            session.document = Some(DocumentView {
+                png,
+                page: snapshot.page.max(1),
+                pages: snapshot.pages.max(snapshot.page.max(1)),
+                updated: Instant::now(),
+                version,
+            });
+            Json(Ack { ok: true, message: String::new() })
+        }
+        Err(_) => Json(Ack { ok: false, message: crate::ru::STATE.into() }),
+    }
+}
+
+fn valid_document_png(png: &[u8]) -> bool {
+    if png.len() < 24 || !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return false;
+    }
+    let width = u32::from_be_bytes([png[16], png[17], png[18], png[19]]);
+    let height = u32::from_be_bytes([png[20], png[21], png[22], png[23]]);
+    width > 0 && height > 0 && width <= 3000 && height <= 5000
+}
+
 fn api_error(status: StatusCode, message: &str) -> (StatusCode, Json<Ack>) {
     (status, Json(Ack { ok: false, message: message.into() }))
 }
@@ -575,6 +640,80 @@ async fn rename_page(State(state): State<AppState>, Query(query): Query<RenameQu
     let classroom = state.classroom.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let session = classroom.session(&query.session).ok_or(StatusCode::NOT_FOUND)?;
     Ok(Html(crate::dashboard::rename_page(&state, session)))
+}
+
+async fn document_page(State(state): State<AppState>, Query(query): Query<RenameQuery>) -> Result<Html<String>, StatusCode> {
+    if query.token != *state.token {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let classroom = state.classroom.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let session = classroom.session(&query.session).ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Html(crate::dashboard::document_page(&state, session)))
+}
+
+async fn document_stream(State(state): State<AppState>, Query(query): Query<RenameQuery>) -> Result<Response, StatusCode> {
+    if query.token != *state.token {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    match state.classroom.lock() {
+        Ok(classroom) if classroom.session(&query.session).is_some() => {}
+        Ok(_) => return Err(StatusCode::NOT_FOUND),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+    let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(1);
+    let state = state.clone();
+    let session_id = query.session;
+    tokio::spawn(async move {
+        let mut last_version = 0u64;
+        loop {
+            if sender.is_closed() {
+                break;
+            }
+            let next = match state.classroom.lock() {
+                Ok(classroom) => {
+                    let Some(session) = classroom.session(&session_id) else { break };
+                    session
+                        .document
+                        .as_ref()
+                        .filter(|document| document.version != last_version)
+                        .map(|document| (document.version, document.png.clone()))
+                }
+                Err(_) => break,
+            };
+            if let Some((version, png)) = next {
+                if sender.send(Ok(Bytes::from(multipart_frame(&png)))).await.is_err() {
+                    break;
+                }
+                last_version = version;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    });
+    Response::builder()
+        .header(header::CONTENT_TYPE, "multipart/x-mixed-replace; boundary=frame")
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::from_stream(ReceiverStream::new(receiver)))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn multipart_frame(png: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(png.len() + 96);
+    frame.extend_from_slice(b"--frame\r\nContent-Type: image/png\r\nContent-Length: ");
+    frame.extend_from_slice(png.len().to_string().as_bytes());
+    frame.extend_from_slice(b"\r\n\r\n");
+    frame.extend_from_slice(png);
+    frame.extend_from_slice(b"\r\n");
+    frame
+}
+
+async fn document_png(State(state): State<AppState>, Query(query): Query<RenameQuery>) -> Result<impl IntoResponse, StatusCode> {
+    if query.token != *state.token {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let classroom = state.classroom.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let session = classroom.session(&query.session).ok_or(StatusCode::NOT_FOUND)?;
+    let document = session.document.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    Ok(([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "no-store")], document.png.clone()))
 }
 
 async fn action(State(state): State<AppState>, Form(form): Form<ActionForm>) -> Result<Redirect, StatusCode> {
@@ -660,6 +799,18 @@ pub fn default_admin_port() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn document_images_must_be_small_pngs() {
+        let mut png = vec![0u8; 24];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[16..20].copy_from_slice(&900u32.to_be_bytes());
+        png[20..24].copy_from_slice(&1200u32.to_be_bytes());
+        assert!(valid_document_png(&png));
+        png[16..20].copy_from_slice(&9000u32.to_be_bytes());
+        assert!(!valid_document_png(&png));
+        assert!(!valid_document_png(b"not a png"));
+    }
 
     #[test]
     fn a_captcha_has_an_answer_and_a_prompt() {

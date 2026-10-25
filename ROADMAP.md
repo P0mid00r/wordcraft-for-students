@@ -135,6 +135,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-25 | Classroom live preview: «Документ» in the teacher dashboard opens the student's current page as a rendered PNG, refreshed about once a second while the session is active; the student sends at most one page a second and only when the page or revision changes |
 | 2026-10-25 | Classroom access is now part of launching a student app: the join dialog opens at start (or a saved name/address connects at once), access survives reloads, revoked or disconnected clients stay blocked and can still save, and the server keeps one session per computer so reloads do not create duplicates |
 | 2026-10-25 | Classroom: a portable WordCraft Teacher server serves the web build and a browser dashboard; web and desktop students ask for access, the teacher approves and renames each computer, can send a distorted-text or arithmetic CAPTCHA or a 60-second pause, and sees auto-input suspicion and CAPTCHA-solved events. Printing builds the teacher app for Windows and Linux and ships the web folder beside it |
 | 2026-10-23 | Typing that is too fast or too regular to be a person pauses text input for a minute: a dialog explains the pause and counts down, the burst that tripped it never reaches the document, and commands that do not type (saving, closing) still run; control-channel text is not mistaken for typing |

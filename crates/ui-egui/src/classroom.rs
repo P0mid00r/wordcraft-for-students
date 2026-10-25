@@ -1,5 +1,7 @@
 use egui::{Align2, Color32, FontId, Id, RichText};
-use wordcraft_classroom::{CaptchaKind, CaptchaPrompt, DEFAULT_PORT, Hello, HelloReply, PROTOCOL_VERSION, PollReply, ServerMessage, SessionStatus};
+use wordcraft_classroom::{
+    CaptchaKind, CaptchaPrompt, DEFAULT_PORT, DocumentSnapshot, Hello, HelloReply, PROTOCOL_VERSION, PollReply, ServerMessage, SessionStatus,
+};
 
 use crate::WordApp;
 
@@ -21,6 +23,7 @@ pub enum Event {
     Leave,
     Answer { id: String, answer: String },
     Suspicion { reason: String, detail: String },
+    Document(DocumentSnapshot),
 }
 
 pub struct Classroom {
@@ -44,6 +47,8 @@ pub struct Classroom {
     hello: Option<Hello>,
     started: bool,
     retry_at: Option<f64>,
+    snapshot_key: Option<(u64, u64, u64)>,
+    snapshot_at: f64,
     captcha_focus: bool,
     join_focus: bool,
     outbox: Vec<Event>,
@@ -72,6 +77,8 @@ impl Default for Classroom {
             hello: None,
             started: false,
             retry_at: None,
+            snapshot_key: None,
+            snapshot_at: 0.0,
             captcha_focus: false,
             join_focus: false,
             outbox: Vec::new(),
@@ -150,6 +157,7 @@ impl Classroom {
         self.join_open = false;
         self.notice.clear();
         self.retry_at = None;
+        self.reset_snapshot();
         self.outbox.push(Event::Connect { url, hello });
         true
     }
@@ -162,6 +170,7 @@ impl Classroom {
         self.join_error.clear();
         self.started = false;
         self.retry_at = None;
+        self.reset_snapshot();
         self.outbox.push(Event::Leave);
     }
 
@@ -174,6 +183,7 @@ impl Classroom {
         self.captcha = None;
         self.notice.clear();
         self.retry_at = None;
+        self.reset_snapshot();
         self.outbox.push(Event::Connect { url: self.url.clone(), hello });
     }
 
@@ -185,6 +195,7 @@ impl Classroom {
         self.started = true;
         self.retry_at = None;
         self.notice.clear();
+        self.reset_snapshot();
         self.session = Some(reply.session);
         self.cursor = reply.cursor;
         self.apply_status(reply.status);
@@ -215,6 +226,9 @@ impl Classroom {
         match status {
             SessionStatus::Pending => self.phase = Phase::Pending,
             SessionStatus::Active => {
+                if self.phase != Phase::Active {
+                    self.reset_snapshot();
+                }
                 self.phase = Phase::Active;
                 self.captcha = None;
                 self.notice.clear();
@@ -233,6 +247,9 @@ impl Classroom {
         match message {
             ServerMessage::Pending => self.phase = Phase::Pending,
             ServerMessage::Approved => {
+                if self.phase != Phase::Active {
+                    self.reset_snapshot();
+                }
                 self.phase = Phase::Active;
                 self.captcha = None;
                 self.notice.clear();
@@ -272,6 +289,25 @@ impl Classroom {
                 self.retry_at = Some(crate::now_ms() + 3000.0);
             }
         }
+    }
+
+    pub fn document_due(&self, key: (u64, u64, u64), now: f64) -> bool {
+        self.phase == Phase::Active
+            && self.captcha.is_none()
+            && self.session.is_some()
+            && self.snapshot_key != Some(key)
+            && now - self.snapshot_at >= 1000.0
+    }
+
+    pub fn queue_document(&mut self, snapshot: DocumentSnapshot, key: (u64, u64, u64), now: f64) {
+        self.outbox.push(Event::Document(snapshot));
+        self.snapshot_key = Some(key);
+        self.snapshot_at = now;
+    }
+
+    fn reset_snapshot(&mut self) {
+        self.snapshot_key = None;
+        self.snapshot_at = 0.0;
     }
 
     pub fn answer(&mut self) {

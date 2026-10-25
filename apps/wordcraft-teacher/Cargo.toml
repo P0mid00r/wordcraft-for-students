@@ -16,10 +16,12 @@ workspace = true
 [dependencies]
 wordcraft-classroom = { workspace = true }
 axum = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "fs", "sync"] }
 tower-http = { version = "0.6", features = ["fs"] }
+tokio-stream = "0.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
+base64 = { workspace = true }
 log = { workspace = true }
 env_logger = "0.11"
 getrandom = "0.3"

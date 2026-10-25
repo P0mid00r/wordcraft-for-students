@@ -82,6 +82,17 @@ pub struct SuspicionReport {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentSnapshot {
+    pub session: String,
+    pub rev: u64,
+    pub page: u64,
+    pub pages: u64,
+    pub width: u32,
+    pub height: u32,
+    pub png: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ack {
     pub ok: bool,
     pub message: String,
@@ -96,6 +107,13 @@ mod tests {
         let message = ServerMessage::Captcha { prompt: CaptchaPrompt { id: "c1".into(), kind: CaptchaKind::Arithmetic, prompt: "2 + 3".into() } };
         let json = serde_json::to_string(&message).unwrap();
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), message);
+    }
+
+    #[test]
+    fn document_snapshots_round_trip() {
+        let snapshot = DocumentSnapshot { session: "s1".into(), rev: 7, page: 2, pages: 5, width: 900, height: 1200, png: "iVBORw0KGgo=".into() };
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert_eq!(serde_json::from_str::<DocumentSnapshot>(&json).unwrap(), snapshot);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use wordcraft_classroom::{Ack, CaptchaAnswer, Hello, HelloReply, PollReply, SuspicionReport};
+use wordcraft_classroom::{Ack, CaptchaAnswer, DocumentSnapshot, Hello, HelloReply, PollReply, SuspicionReport};
 use wordcraft_ui_egui::classroom::Event;
 
 pub enum Incoming {
@@ -18,6 +18,7 @@ struct Wire {
 enum Command {
     Answer { id: String, answer: String },
     Suspicion { reason: String, detail: String },
+    Document(DocumentSnapshot),
     Stop,
 }
 
@@ -48,6 +49,11 @@ impl Link {
             Event::Suspicion { reason, detail } => {
                 if let Some(command) = &self.current {
                     let _ = command.send(Command::Suspicion { reason, detail });
+                }
+            }
+            Event::Document(snapshot) => {
+                if let Some(command) = &self.current {
+                    let _ = command.send(Command::Document(snapshot));
                 }
             }
         }
@@ -114,6 +120,9 @@ fn run(url: String, hello: Hello, commands: Receiver<Command>, outgoing: Sender<
             Ok(Command::Suspicion { reason, detail }) => {
                 let request = SuspicionReport { session: session.clone(), reason, detail };
                 let _ = post_json::<SuspicionReport, Ack>(&format!("{base}/classroom/suspicion"), &request);
+            }
+            Ok(Command::Document(snapshot)) => {
+                let _ = post_json::<DocumentSnapshot, Ack>(&format!("{base}/classroom/document"), &snapshot);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
