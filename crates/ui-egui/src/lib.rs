@@ -3474,6 +3474,28 @@ mod tests {
     }
 
     #[test]
+    fn times_new_roman_is_listed_even_without_a_system_file() {
+        let mut a = app();
+        assert!(
+            a.previews.families().iter().any(|family| family.eq_ignore_ascii_case("Times New Roman")),
+            "Word's common fonts are offered even when only a substitute is installed"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn times_new_roman_is_in_the_font_menu() {
+        if !std::path::Path::new("/System/Library/Fonts/Supplemental/Times New Roman.ttf").is_file() {
+            return;
+        }
+        let mut a = app();
+        assert!(
+            a.previews.families().iter().any(|family| family.eq_ignore_ascii_case("Times New Roman")),
+            "Times New Roman is in the ribbon and dialog font list"
+        );
+    }
+
+    #[test]
     fn classroom_approval_captcha_and_teacher_pause_gate_editing() {
         use wordcraft_classroom::{CaptchaKind, CaptchaPrompt, HelloReply, PollReply, ServerMessage, SessionStatus};
 

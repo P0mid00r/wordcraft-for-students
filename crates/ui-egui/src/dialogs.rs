@@ -1809,10 +1809,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                             ui.selectable_value(&mut special, 2, tl!("Hanging Indent"));
                         });
                         if special != special_was {
+                            let default = 1.25 * wordcraft_geom::PT_PER_CM / crate::options::unit().pt_per_unit();
                             *first = match special {
                                 0 => 0.0,
-                                1 => first.abs().max(1.25),
-                                _ => -first.abs().max(1.25),
+                                1 => first.abs().max(default),
+                                _ => -first.abs().max(default),
                             };
                         }
                         para_label(ui, tl!("By:"));

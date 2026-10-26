@@ -28,6 +28,29 @@ pub struct Previews {
     frame: u64,
 }
 
+const COMMON_WORD_FONTS: &[&str] = &[
+    "Aptos",
+    "Aptos Display",
+    "Arial",
+    "Book Antiqua",
+    "Calibri",
+    "Cambria",
+    "Cambria Math",
+    "Comic Sans MS",
+    "Consolas",
+    "Courier New",
+    "Garamond",
+    "Georgia",
+    "Palatino Linotype",
+    "Segoe UI",
+    "Symbol",
+    "Tahoma",
+    "Times New Roman",
+    "Trebuchet MS",
+    "Verdana",
+    "Wingdings",
+];
+
 impl Previews {
     /// The font list: installed families, each by its name in the interface language when it has
     /// one (宋体 for SimSun in Chinese, #505), like Word's.
@@ -39,6 +62,11 @@ impl Previews {
             for w in [wordcraft_doc::styles::BODY_FONT, wordcraft_doc::styles::HEADING_FONT] {
                 if !f.iter().any(|x| x == w) {
                     f.push(w.to_string());
+                }
+            }
+            for family in COMMON_WORD_FONTS {
+                if !f.iter().any(|x| x.eq_ignore_ascii_case(family)) {
+                    f.push((*family).to_string());
                 }
             }
             f.sort_by_key(|a| a.to_lowercase());
