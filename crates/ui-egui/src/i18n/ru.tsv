@@ -2512,3 +2512,17 @@ preview	Title	Пример
 	The connection will be restored automatically.	Связь восстанавливается автоматически.
 	Change address	Изменить адрес
 	Save file	Сохранить файл
+	Page position	Положение на странице
+	Collapsed by default	Свернуть по умолчанию
+	Adjust right indent when the document grid is defined	Автоматически изменять отступ справа, если сетка документа определена
+	Snap to grid when the document grid is defined	Привязка к сетке, если сетка документа определена
+	Special:	Особые:
+	By:	На:
+	1.5	1,5
+	Multiple	Множитель
+	Previous paragraph	Предыдущий абзац
+	Paragraph text	Текст абзаца
+	Before spacing	До:
+	After spacing	После:
+	Absent	(отсутствует)
+	Line spacing short	Междустрочный:

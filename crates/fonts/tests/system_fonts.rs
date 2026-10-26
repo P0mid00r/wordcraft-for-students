@@ -5,11 +5,21 @@
 
 use wordcraft_fonts::{FontDb, system_font_dirs};
 
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_scans_the_supplemental_fonts_folder() {
+    assert!(system_font_dirs().iter().any(|path| path.ends_with("Supplemental")), "Times New Roman and the other supplemental fonts are there");
+}
+
 #[test]
 fn a_fresh_session_finds_installed_fonts_by_name() {
     let bundled = FontDb::with_font_dirs(vec![]).families();
     let probe = FontDb::with_font_dirs(system_font_dirs());
     probe.load_system_fonts();
+    #[cfg(target_os = "macos")]
+    if std::path::Path::new("/System/Library/Fonts/Supplemental/Times New Roman.ttf").is_file() {
+        assert!(probe.families().iter().any(|family| family.eq_ignore_ascii_case("Times New Roman")), "Times New Roman is in the font menu");
+    }
     // An installed family that isn't bundled and that loads.
     let installed = probe.families();
     let Some(family) = installed.iter().filter(|f| !bundled.contains(f)).find(|f| probe.face(f, "Regular").family == **f) else {

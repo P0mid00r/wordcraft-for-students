@@ -3378,9 +3378,31 @@ mod tests {
     }
 
     #[test]
+    fn the_first_approval_screen_has_nothing_to_save() {
+        let mut a = app();
+        a.classroom.available = true;
+        a.classroom.auto_start();
+        a.classroom.join_open = false;
+        a.classroom.phase = classroom::Phase::Pending;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().classroom.blocks_editing());
+        assert!(h.query_by_label("Save file").is_none(), "no document has been created yet");
+    }
+
+    #[test]
     fn a_denied_or_disconnected_student_can_only_save_or_wait() {
         for phase in [classroom::Phase::Denied, classroom::Phase::Disconnected] {
-            let mut a = app();
+            let mut a = typed();
             a.classroom.available = true;
             a.classroom.auto_start();
             a.classroom.join_open = false;

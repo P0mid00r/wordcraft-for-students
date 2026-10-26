@@ -411,8 +411,6 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
                 ui.heading(crate::tl!("Waiting for the teacher's approval"));
                 ui.add_space(8.0);
                 ui.label(crate::tl!("The teacher must allow this computer before you can edit."));
-                ui.add_space(10.0);
-                save_button(app, ui);
             });
         }
         Phase::Denied => {
@@ -465,6 +463,9 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
 }
 
 fn save_button(app: &mut WordApp, ui: &mut egui::Ui) {
+    if !app.session.dirty && app.session.path.is_none() && app.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim().is_empty() {
+        return;
+    }
     if ui.button(crate::tl!("Save file")).clicked() {
         let _ = app.run("file.save", serde_json::json!({}));
     }

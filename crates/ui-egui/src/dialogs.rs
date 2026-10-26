@@ -204,6 +204,20 @@ pub enum Dialog {
         /// `opts` when the dialog opened: OK sets only the ones that changed.
         #[serde(skip)]
         opts_was: [bool; 4],
+        /// Paragraph outline level: 0..=8 Level 1..9, 9 body text.
+        outline: u8,
+        #[serde(skip)]
+        outline_was: u8,
+        snap_to_grid: bool,
+        #[serde(skip)]
+        snap_to_grid_was: bool,
+        adjust_right_ind: bool,
+        #[serde(skip)]
+        adjust_right_ind_was: bool,
+        /// 0 multiple, 1 at least, 2 exactly.
+        line_rule: u8,
+        #[serde(skip)]
+        line_rule_was: u8,
     },
     /// Tabs (#320).
     Tabs {
@@ -1005,9 +1019,10 @@ impl Dialog {
             "paragraph" | "asianTypography" => {
                 let rp = app.session.doc.para_at(&app.session.sel.focus).map(|p| app.session.doc.styles.resolve_para(&p.props));
                 let rp = rp?;
-                let line = match rp.line_spacing {
-                    wordcraft_doc::props::LineSpacing::Multiple(m) => m,
-                    _ => 1.0,
+                let (line, line_rule) = match rp.line_spacing {
+                    wordcraft_doc::props::LineSpacing::Multiple(m) => (m, 0),
+                    wordcraft_doc::props::LineSpacing::AtLeast(p) => (p, 1),
+                    wordcraft_doc::props::LineSpacing::Exactly(p) => (p, 2),
                 };
                 let (vl, vr) = rp.visual_indents();
                 Dialog::Paragraph {
@@ -1029,6 +1044,14 @@ impl Dialog {
                     asian_was: [rp.kinsoku, rp.word_wrap, rp.overflow_punct, rp.top_line_punct, rp.auto_space_de, rp.auto_space_dn],
                     opts: [rp.mirror_indents, rp.contextual_spacing, rp.suppress_line_numbers, rp.suppress_hyphens],
                     opts_was: [rp.mirror_indents, rp.contextual_spacing, rp.suppress_line_numbers, rp.suppress_hyphens],
+                    outline: rp.outline_level.unwrap_or(9),
+                    outline_was: rp.outline_level.unwrap_or(9),
+                    snap_to_grid: rp.snap_to_grid,
+                    snap_to_grid_was: rp.snap_to_grid,
+                    adjust_right_ind: rp.adjust_right_ind,
+                    adjust_right_ind_was: rp.adjust_right_ind,
+                    line_rule,
+                    line_rule_was: line_rule,
                 }
             }
             "tabs" => Dialog::Tabs { form: Box::new(crate::dialogs_para::TabsForm::read(app)?) },
@@ -1487,6 +1510,94 @@ fn apply_font(app: &mut WordApp, d: &Dialog) {
     }
 }
 
+fn para_label(ui: &mut Ui, text: &str) {
+    ui.add_sized(vec2(118.0, ui.spacing().interact_size.y), egui::Label::new(text).halign(egui::Align::RIGHT));
+}
+
+fn para_section(ui: &mut Ui, text: &str) {
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new(text).font(semibold(13.0)));
+    ui.add_space(2.0);
+}
+
+fn paragraph_buttons(ui: &mut Ui) -> (bool, bool, bool, bool) {
+    let (mut ok, mut cancel, mut tabs, mut default) = (false, false, false, false);
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        tabs = ui.button(tl!("Tabs…")).clicked();
+        default = ui.button(tl!("Default")).clicked();
+        let right = 170.0;
+        ui.add_space((ui.available_width() - right).max(8.0));
+        let keys = !crate::colors::is_open(ui.ctx());
+        if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+            cancel = true;
+        }
+        let okb = ui.add(crate::widgets::primary_button(ui, tl!("OK")));
+        if okb.clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+            ok = true;
+        }
+    });
+    (ok, cancel, tabs, default)
+}
+
+fn line_spacing_label(rule: u8, line: f32) -> (&'static str, &'static str) {
+    match rule {
+        1 => ("AtLeast", "At least"),
+        2 => ("Exactly", "Exactly"),
+        _ if (line - 1.0).abs() < 0.001 => ("Single", "Single"),
+        _ if (line - 1.5).abs() < 0.001 => ("OneAndHalf", "1.5"),
+        _ if (line - 2.0).abs() < 0.001 => ("Double", "Double"),
+        _ => ("Multiple", "Multiple"),
+    }
+}
+
+fn set_line_spacing_choice(choice: &str, rule: &mut u8, line: &mut f32) {
+    let was_fixed = *rule != 0;
+    match choice {
+        "Single" => {
+            *rule = 0;
+            *line = 1.0;
+        }
+        "OneAndHalf" => {
+            *rule = 0;
+            *line = 1.5;
+        }
+        "Double" => {
+            *rule = 0;
+            *line = 2.0;
+        }
+        "AtLeast" => {
+            if !was_fixed {
+                *line = (*line * 12.0).round().max(1.0);
+            }
+            *rule = 1;
+        }
+        "Exactly" => {
+            if !was_fixed {
+                *line = (*line * 12.0).round().max(1.0);
+            }
+            *rule = 2;
+        }
+        _ => {
+            if was_fixed {
+                *line = 1.0;
+            }
+            *rule = 0;
+        }
+    }
+}
+
+fn paragraph_preview(ui: &mut Ui) {
+    egui::Frame::NONE.fill(egui::Color32::from_gray(250)).corner_radius(4.0).inner_margin(12.0).show(ui, |ui| {
+        ui.set_min_width(560.0);
+        ui.set_min_height(76.0);
+        let previous = (0..6).map(|_| tl!("Previous paragraph")).collect::<Vec<_>>().join(" ");
+        ui.label(egui::RichText::new(previous).color(egui::Color32::from_gray(158)).size(11.5));
+        ui.add_space(5.0);
+        ui.label(egui::RichText::new(tl!("Paragraph text")).color(egui::Color32::from_gray(28)).size(13.0));
+    });
+}
+
 /// Returns true to close.
 fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     match d {
@@ -1590,26 +1701,49 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             asian_was,
             opts,
             opts_was,
+            outline,
+            outline_was,
+            snap_to_grid,
+            snap_to_grid_was,
+            adjust_right_ind,
+            adjust_right_ind_was,
+            line_rule,
+            line_rule_was,
         } => {
+            ui.set_min_width(620.0);
+            let t = Tokens::get(ui.ctx());
             ui.horizontal(|ui| {
-                for (k, name) in ["Indents and Spacing", "Line and Page Breaks", "Asian Typography"].into_iter().enumerate() {
-                    if ui.selectable_label(*tab as usize == k, tl!(name)).clicked() {
-                        *tab = k as u8;
+                let width = if *tab == 2 { 430.0 } else { 300.0 };
+                ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
+                egui::Frame::NONE.fill(t.input).corner_radius(8.0).inner_margin(3.0).show(ui, |ui| {
+                    let mut chosen = None;
+                    ui.scope(|ui| {
+                        ui.visuals_mut().selection.bg_fill = t.checked;
+                        ui.visuals_mut().selection.stroke = egui::Stroke::new(1.0, t.border_strong);
+                        ui.horizontal(|ui| {
+                            let mut names: Vec<(u8, &str)> = vec![(0, "Indents and Spacing"), (1, "Page position")];
+                            if *tab == 2 {
+                                names.push((2, "Asian Typography"));
+                            }
+                            for (k, name) in names {
+                                if ui.selectable_label(*tab == k, tl!(name)).clicked() {
+                                    chosen = Some(k);
+                                }
+                            }
+                        });
+                    });
+                    if let Some(chosen) = chosen {
+                        *tab = chosen;
                     }
-                }
+                });
             });
-            ui.separator();
+            ui.add_space(8.0);
             match *tab {
                 0 => {
-                    ui.label(egui::RichText::new(tl!("General")).font(semibold(12.5)));
+                    para_section(ui, tl!("General"));
                     ui.horizontal(|ui| {
-                        ui.label(tl!("Direction:"));
-                        ui.radio_value(rtl, true, tl!("Right-to-left"));
-                        ui.radio_value(rtl, false, tl!("Left-to-right"));
-                    });
-                    const ALIGNS: [(&str, &str); 4] = [("left", "Left"), ("center", "Center"), ("right", "Right"), ("justify", "Justify")];
-                    ui.horizontal(|ui| {
-                        ui.label(tl!("Alignment:"));
+                        para_label(ui, tl!("Alignment:"));
+                        const ALIGNS: [(&str, &str); 4] = [("left", "Left"), ("center", "Center"), ("right", "Right"), ("justify", "Justify")];
                         let shown = ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l));
                         egui::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
                             for (v, l) in ALIGNS {
@@ -1617,18 +1751,37 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                             }
                         });
                     });
-                    ui.label(egui::RichText::new(tl!("Indentation")).font(semibold(12.5)));
-                    // Mirrored indents are the inside and outside ones (they swap on even pages).
-                    let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
-                    egui::Grid::new("ind").num_columns(4).show(ui, |ui| {
-                        ui.label(tl!(l_label));
+                    ui.horizontal(|ui| {
+                        para_label(ui, tl!("Outline level"));
+                        let shown = if *outline >= 9 {
+                            tl!("Body Text").to_string()
+                        } else {
+                            crate::i18n::fmt(tl!("Level {n}"), &[("n", &(*outline as u16 + 1).to_string())])
+                        };
+                        egui::ComboBox::from_id_salt("para_outline").selected_text(shown).show_ui(ui, |ui| {
+                            ui.selectable_value(outline, 9, tl!("Body Text"));
+                            for level in 0..9u8 {
+                                let label = crate::i18n::fmt(tl!("Level {n}"), &[("n", &(level as u16 + 1).to_string())]);
+                                ui.selectable_value(outline, level, label);
+                            }
+                        });
+                        ui.add_space(18.0);
+                        let mut collapsed = false;
+                        ui.add_enabled(false, egui::Checkbox::new(&mut collapsed, tl!("Collapsed by default")));
+                    });
+                    ui.add_space(5.0);
+                    ui.separator();
+                    para_section(ui, tl!("Indent"));
+                    egui::Grid::new("para_indent_grid").num_columns(4).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+                        let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
+                        para_label(ui, tl!(l_label));
                         ui.add(
                             egui::DragValue::new(left)
                                 .speed(3.6 / crate::options::unit().pt_per_unit())
                                 .measure(crate::options::unit())
                                 .max_decimals(2),
                         );
-                        ui.label(tl!(r_label));
+                        para_label(ui, tl!(r_label));
                         ui.add(
                             egui::DragValue::new(right)
                                 .speed(3.6 / crate::options::unit().pt_per_unit())
@@ -1636,60 +1789,127 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                                 .max_decimals(2),
                         );
                         ui.end_row();
-                        ui.label(tl!("First line:"));
-                        ui.add(
-                            egui::DragValue::new(first)
-                                .speed(3.6 / crate::options::unit().pt_per_unit())
-                                .measure(crate::options::unit())
-                                .max_decimals(2),
-                        );
+                        para_label(ui, tl!("Special:"));
+                        let special_was = if *first > 0.0 {
+                            1
+                        } else if *first < 0.0 {
+                            2
+                        } else {
+                            0
+                        };
+                        let mut special = special_was;
+                        let selected = match special {
+                            1 => tl!("Indent"),
+                            2 => tl!("Hanging Indent"),
+                            _ => tl!("Absent"),
+                        };
+                        egui::ComboBox::from_id_salt("para_special").selected_text(selected).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut special, 0, tl!("Absent"));
+                            ui.selectable_value(&mut special, 1, tl!("Indent"));
+                            ui.selectable_value(&mut special, 2, tl!("Hanging Indent"));
+                        });
+                        if special != special_was {
+                            *first = match special {
+                                0 => 0.0,
+                                1 => first.abs().max(1.25),
+                                _ => -first.abs().max(1.25),
+                            };
+                        }
+                        para_label(ui, tl!("By:"));
+                        let special = if *first > 0.0 {
+                            1
+                        } else if *first < 0.0 {
+                            2
+                        } else {
+                            0
+                        };
+                        let mut by = first.abs();
+                        if ui
+                            .add_enabled(special != 0, egui::DragValue::new(&mut by).speed(0.1).measure(crate::options::unit()).max_decimals(2))
+                            .changed()
+                        {
+                            *first = if special == 2 { -by } else { by };
+                        }
                         ui.end_row();
                     });
                     ui.checkbox(&mut opts[0], tl!("Mirror indents"));
-                    ui.label(egui::RichText::new(tl!("Spacing")).font(semibold(12.5)));
-                    egui::Grid::new("sp").num_columns(4).show(ui, |ui| {
-                        ui.label(tl!("Before:"));
+                    ui.checkbox(adjust_right_ind, tl!("Adjust right indent when the document grid is defined"));
+                    ui.add_space(5.0);
+                    ui.separator();
+                    para_section(ui, tl!("Spacing"));
+                    egui::Grid::new("para_spacing_grid").num_columns(4).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+                        para_label(ui, tl!("Before spacing"));
                         ui.add(egui::DragValue::new(before).speed(1.0).range(0.0..=1584.0).suffix(format!(" {}", tl!("pt"))));
-                        ui.label(tl!("Line spacing:"));
-                        ui.add(egui::DragValue::new(line).speed(0.05).range(0.5..=5.0));
-                        ui.end_row();
-                        ui.label(tl!("After:"));
+                        para_label(ui, tl!("After spacing"));
                         ui.add(egui::DragValue::new(after).speed(1.0).range(0.0..=1584.0).suffix(format!(" {}", tl!("pt"))));
+                        ui.end_row();
+                        para_label(ui, tl!("Line spacing short"));
+                        let (key, label) = line_spacing_label(*line_rule, *line);
+                        let mut choice = key.to_string();
+                        egui::ComboBox::from_id_salt("para_line_spacing").selected_text(tl!(label)).show_ui(ui, |ui| {
+                            for (k, l) in [
+                                ("Single", "Single"),
+                                ("OneAndHalf", "1.5"),
+                                ("Double", "Double"),
+                                ("AtLeast", "At least"),
+                                ("Exactly", "Exactly"),
+                                ("Multiple", "Multiple"),
+                            ] {
+                                ui.selectable_value(&mut choice, k.to_string(), tl!(l));
+                            }
+                        });
+                        if choice != key {
+                            set_line_spacing_choice(&choice, line_rule, line);
+                        }
+                        para_label(ui, tl!("By:"));
+                        if *line_rule == 0 {
+                            ui.add(egui::DragValue::new(line).speed(0.05).range(0.5..=5.0).max_decimals(2));
+                        } else {
+                            ui.add(egui::DragValue::new(line).speed(1.0).range(1.0..=1584.0).suffix(format!(" {}", tl!("pt"))).max_decimals(2));
+                        }
                         ui.end_row();
                     });
                     ui.checkbox(&mut opts[1], tl!("Don't add space between paragraphs of the same style"));
+                    ui.checkbox(snap_to_grid, tl!("Snap to grid when the document grid is defined"));
+                    ui.add_space(8.0);
+                    paragraph_preview(ui);
                 }
                 1 => {
-                    ui.label(egui::RichText::new(tl!("Line and Page Breaks")).font(semibold(12.5)));
+                    ui.horizontal(|ui| {
+                        para_label(ui, tl!("Direction:"));
+                        ui.radio_value(rtl, false, tl!("Left-to-right"));
+                        ui.radio_value(rtl, true, tl!("Right-to-left"));
+                    });
+                    ui.add_space(4.0);
+                    ui.separator();
+                    para_section(ui, tl!("Line and Page Breaks"));
                     ui.checkbox(widow, tl!("Widow/Orphan control"));
                     ui.checkbox(keep_next, tl!("Keep with next"));
                     ui.checkbox(keep_lines, tl!("Keep lines together"));
                     ui.checkbox(page_break, tl!("Page break before"));
-                    ui.label(egui::RichText::new(tl!("Formatting exceptions")).font(semibold(12.5)));
+                    para_section(ui, tl!("Formatting exceptions"));
                     ui.checkbox(&mut opts[2], tl!("Suppress line numbers"));
                     ui.checkbox(&mut opts[3], tl!("Don't hyphenate"));
                 }
                 _ => {
                     let [kinsoku, word_wrap, overflow, top_line, de, dn] = asian;
-                    ui.label(egui::RichText::new(tl!("Line breaking")).font(semibold(12.5)));
+                    para_section(ui, tl!("Line breaking"));
                     ui.checkbox(kinsoku, tl!("Apply Asian line-breaking rules (kinsoku)"));
-                    // The model's flag is "wrap whole words"; the box offers the opposite.
                     let mut mid_word = !*word_wrap;
                     if ui.checkbox(&mut mid_word, tl!("Allow Latin text to wrap in the middle of a word")).changed() {
                         *word_wrap = !mid_word;
                     }
                     ui.checkbox(overflow, tl!("Allow hanging punctuation"));
-                    ui.label(egui::RichText::new(tl!("Character Spacing")).font(semibold(12.5)));
+                    para_section(ui, tl!("Character Spacing"));
                     ui.checkbox(top_line, tl!("Compress punctuation at the start of a line"));
                     ui.checkbox(de, tl!("Add space between Asian and Latin text"));
                     ui.checkbox(dn, tl!("Add space between Asian text and numbers"));
                 }
             }
             ui.add_space(6.0);
-            let tabs = ui.button(tl!("Tabs…")).clicked();
-            let (ok, cancel) = buttons(ui, tl!("OK"));
-            if ok || tabs {
-                apply_paragraph(
+            let (ok, cancel, tabs, default) = paragraph_buttons(ui);
+            if ok || tabs || default {
+                apply_paragraph_with(
                     app,
                     *rtl,
                     align,
@@ -1701,14 +1921,30 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     (*line, *line_was),
                     [*keep_next, *keep_lines, *page_break, *widow],
                     (*opts, *opts_was),
+                    ParaExtras {
+                        line_rule: (*line_rule, *line_rule_was),
+                        outline: (*outline, *outline_was),
+                        snap_to_grid: (*snap_to_grid, *snap_to_grid_was),
+                        adjust_right_ind: (*adjust_right_ind, *adjust_right_ind_was),
+                    },
                 );
                 apply_asian(app, *asian, *asian_was);
+                if default {
+                    let style = app
+                        .session
+                        .doc
+                        .para_at(&app.session.sel.focus)
+                        .map(|p| app.session.doc.styles.resolve_para(&p.props).style)
+                        .unwrap_or_default();
+                    if !style.is_empty() {
+                        let _ = app.run("styles.updateToMatch", json!({"style": style}));
+                    }
+                }
+                if tabs {
+                    app.dialog = Dialog::open("tabs", app);
+                }
             }
-            // Tabs… keeps what was set here and moves on to the Tabs dialog.
-            if tabs {
-                app.dialog = Dialog::open("tabs", app);
-            }
-            ok || cancel || tabs
+            ok || cancel || tabs || default
         }
         Dialog::Tabs { form } => crate::dialogs_para::tabs(app, ui, form),
         Dialog::Borders { form } => crate::dialogs_para::borders(app, ui, form),
@@ -2866,11 +3102,26 @@ fn table_properties(ui: &mut Ui, f: &mut TableForm) {
     });
 }
 
+/// Paragraph settings that the dialog's first tab does not share with the old callers.
+#[derive(Clone, Copy)]
+struct ParaExtras {
+    line_rule: (u8, u8),
+    outline: (u8, u8),
+    snap_to_grid: (bool, bool),
+    adjust_right_ind: (bool, bool),
+}
+
+impl Default for ParaExtras {
+    fn default() -> Self {
+        Self { line_rule: (0, 0), outline: (9, 9), snap_to_grid: (true, true), adjust_right_ind: (true, true) }
+    }
+}
+
 /// The Paragraph dialog's OK. `align`, `left` and `right` are as seen on the page; `flags` are
 /// keep with next, keep lines together, page break before, widow/orphan control; `opts` (now,
 /// when opened) are mirror indents, contextual spacing, suppress line numbers and don't
 /// hyphenate, of which only the changed ones are set.
-#[allow(clippy::too_many_arguments)]
+#[allow(dead_code, clippy::too_many_arguments)]
 fn apply_paragraph(
     app: &mut WordApp,
     rtl: bool,
@@ -2884,6 +3135,24 @@ fn apply_paragraph(
     flags: [bool; 4],
     opts: ([bool; 4], [bool; 4]),
 ) {
+    apply_paragraph_with(app, rtl, align, left, right, first, before, after, line, flags, opts, ParaExtras::default());
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_paragraph_with(
+    app: &mut WordApp,
+    rtl: bool,
+    align: &str,
+    left: f32,
+    right: f32,
+    first: f32,
+    before: f32,
+    after: f32,
+    line: (f32, f32),
+    flags: [bool; 4],
+    opts: ([bool; 4], [bool; 4]),
+    extras: ParaExtras,
+) {
     let [keep_next, keep_lines, page_break, widow] = flags;
     let (line, line_was) = line;
     // Direction first: the alignment and indents are as seen on the page, and their logical
@@ -2896,11 +3165,15 @@ fn apply_paragraph(
         "spaceBefore": before, "spaceAfter": after,
         "keepNext": keep_next, "keepLines": keep_lines, "pageBreakBefore": page_break, "widowControl": widow,
     });
-    // The dialog edits only multiples: an untouched value keeps Exactly and At Least.
-    if line != line_was
+    if (line != line_was || extras.line_rule.0 != extras.line_rule.1)
         && let Some(m) = props.as_object_mut()
     {
-        m.insert("lineSpacing".into(), json!({"rule": "multiple", "value": line}));
+        let rule = match extras.line_rule.0 {
+            1 => "atLeast",
+            2 => "exactly",
+            _ => "multiple",
+        };
+        m.insert("lineSpacing".into(), json!({"rule": rule, "value": line}));
     }
     let (now, was) = opts;
     for (key, (on, was)) in ["mirrorIndents", "contextualSpacing", "suppressLineNumbers", "suppressHyphens"].into_iter().zip(now.into_iter().zip(was))
@@ -2910,6 +3183,21 @@ fn apply_paragraph(
         {
             m.insert(key.into(), json!(on));
         }
+    }
+    if extras.outline.0 != extras.outline.1
+        && let Some(m) = props.as_object_mut()
+    {
+        m.insert("outlineLevel".into(), json!(extras.outline.0.min(9)));
+    }
+    if extras.snap_to_grid.0 != extras.snap_to_grid.1
+        && let Some(m) = props.as_object_mut()
+    {
+        m.insert("snapToGrid".into(), json!(extras.snap_to_grid.0));
+    }
+    if extras.adjust_right_ind.0 != extras.adjust_right_ind.1
+        && let Some(m) = props.as_object_mut()
+    {
+        m.insert("adjustRightInd".into(), json!(extras.adjust_right_ind.0));
     }
     let _ = app.run("para.set", json!({ "props": props }));
 }
@@ -3621,6 +3909,32 @@ mod tests {
         let _ = app.run("edit.undo", json!({}));
         assert_eq!(fonts(&app).1.as_deref(), Some("SimSun"));
         assert_ne!(fonts(&app).0.as_deref(), Some("Georgia"));
+    }
+
+    #[test]
+    fn paragraph_dialog_sets_outline_spacing_rule_snap_and_adjust() {
+        use wordcraft_doc::props::LineSpacing;
+
+        let mut app = app_with("Hello");
+        apply_paragraph_with(
+            &mut app,
+            false,
+            "left",
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            (18.0, 1.0),
+            [false; 4],
+            ([false; 4], [false; 4]),
+            ParaExtras { line_rule: (2, 0), outline: (2, 9), snap_to_grid: (false, true), adjust_right_ind: (false, true) },
+        );
+        let p = props(&app);
+        assert_eq!(p.line_spacing, Some(LineSpacing::Exactly(18.0)));
+        assert_eq!(p.outline_level, Some(2));
+        assert_eq!(p.snap_to_grid, Some(false));
+        assert_eq!(p.adjust_right_ind, Some(false));
     }
 
     #[test]

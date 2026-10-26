@@ -687,7 +687,7 @@ pub fn system_font_dirs() -> Vec<std::path::PathBuf> {
     }
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     if cfg!(target_os = "macos") {
-        dirs.extend(["/System/Library/Fonts", "/Library/Fonts"].map(Into::into));
+        dirs.extend(["/System/Library/Fonts", "/System/Library/Fonts/Supplemental", "/Library/Fonts"].map(Into::into));
         if let Some(h) = &home {
             dirs.push(h.join("Library/Fonts"));
         }
