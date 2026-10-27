@@ -180,6 +180,7 @@ fn native_ranges_and_parity_do_not_duplicate_spooler_copies() {
         }
     }
     assert_eq!(app.session.export_layout().pages.len(), 3);
+    app.session.doc.core.created = "2026-01-02T03:04:05Z".into();
     app.printing.printers.push(Printer { name: "Queue".into(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue","copies":3})).unwrap();
     let jobs = Rc::new(RefCell::new(Vec::new()));
